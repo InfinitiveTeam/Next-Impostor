@@ -58,11 +58,21 @@ namespace Impostor.Server.GameRecorder
     public class RoomRecorder
     {
         public string RoomCode { get; }
+
         public StringBuilder GameData { get; } = new StringBuilder();
+
         public StringBuilder OptionData { get; } = new StringBuilder();
+
         public bool AnalysisInProgress { get; set; } = false;
+
         public bool AnalysisComplete { get; set; } = false;
+
         public DateTime LastAnalysisStartTime { get; set; }
+
+        // 新增：存储 AI 分析结果和发送标志
+        public string? DeepSeekText { get; set; }
+
+        public bool? SendDeepSeekText { get; set; }
 
         public RoomRecorder(string roomCode)
         {
@@ -75,15 +85,61 @@ namespace Impostor.Server.GameRecorder
             OptionData.Clear();
             AnalysisInProgress = false;
             AnalysisComplete = false;
+            // 可选：不清除 AI 分析结果，以便玩家重新加入时可以获取
+            // DeepSeekText = null;
+            // SendDeepSeekText = null;
         }
     }
 
     // ============== 主记录器类 ==============
     public static class GameRecorderMain
     {
+        private static readonly TimeSpan RecordExpirationTime = TimeSpan.FromHours(1);
+
         // 使用并发字典支持多线程访问
         private static readonly ConcurrentDictionary<string, RoomRecorder> _roomRecorders =
             new ConcurrentDictionary<string, RoomRecorder>();
+
+        public static void CleanupExpiredRecorders()
+        {
+            var expiredRooms = new List<string>();
+            var now = DateTime.Now;
+
+            foreach (var kvp in _roomRecorders)
+            {
+                var recorder = kvp.Value;
+
+                // 如果记录器已经完成分析，并且超过一定时间没有活动，则清理
+                if (recorder.AnalysisComplete &&
+                    (now - recorder.LastAnalysisStartTime) > RecordExpirationTime)
+                {
+                    expiredRooms.Add(kvp.Key);
+                }
+            }
+
+            foreach (var roomCode in expiredRooms)
+            {
+                ClearData(roomCode);
+                Program.LogToConsole($"清理过期记录器: {roomCode}", ConsoleColor.Gray);
+            }
+        }
+
+        // 13. 获取记录器状态（用于调试）
+        public static Dictionary<string, string> GetAllRecorderStatus()
+        {
+            var status = new Dictionary<string, string>();
+
+            foreach (var kvp in _roomRecorders)
+            {
+                var recorder = kvp.Value;
+                status[kvp.Key] = $"数据长度: {recorder.GameData.Length}, " +
+                                 $"分析中: {recorder.AnalysisInProgress}, " +
+                                 $"分析完成: {recorder.AnalysisComplete}, " +
+                                 $"有AI结果: {!string.IsNullOrEmpty(recorder.DeepSeekText)}";
+            }
+
+            return status;
+        }
 
         // ============== 房间管理方法 ==============
         internal static RoomRecorder GetOrCreateRoomRecorder(string roomCode)
@@ -117,7 +173,7 @@ namespace Impostor.Server.GameRecorder
                         {
                             new {
                                 role = "system",
-                                content = "你是一个AI助手，你需要分析用户提供的Among Us游戏对局信息，给出每个玩家的相应的评分，同时请以HTML文字格式输出内容，用于在Unity游戏里正常显示(可以添加颜色)，不要超过500个字符"
+                                content = "你是一个AI助手，你需要分析用户提供的Among Us游戏对局信息，给出每个玩家的相应的评分，同时输出用于在Unity游戏里显示的文字(可以使用<color=#……>添加颜色或者<b>加粗等)，不要超过500个字符"
                             },
                             new { role = "user", content = gameData }
                         },
@@ -185,6 +241,7 @@ namespace Impostor.Server.GameRecorder
                 }
             }
 
+            // 修改 AIManager.SendAnalysisToChat 方法中的相关部分
             internal static async Task<string> SendAnalysisToChat(string roomCode, Impostor.Server.Net.State.Game game = null)
             {
                 var recorder = GetRoomRecorder(roomCode);
@@ -218,13 +275,20 @@ namespace Impostor.Server.GameRecorder
                     recorder.AnalysisInProgress = false;
                     recorder.AnalysisComplete = true;
 
+                    // 关键修复：将 AI 分析结果保存到记录器中
+                    recorder.DeepSeekText = analysis;
+                    recorder.SendDeepSeekText = true; // 设置为需要发送
+
                     Program.LogToConsole($"房间 {roomCode} AI分析完成，耗时: {(DateTime.Now - recorder.LastAnalysisStartTime).TotalSeconds:F1}秒", ConsoleColor.Green);
+                    game.Host?.Character?.SendChatAsync(analysis);
 
                     // 设置房间的DeepSeekText字段
                     if (game != null)
                     {
                         game.DeepSeekText = analysis;
+                        game.SendDeepSeekText = true;
                         Program.LogToConsole($"房间 {roomCode} 分析结果已保存到DeepSeekText", ConsoleColor.Green);
+
 
                         // 判断是否需要自动发送思考结果
                         if (game.SendDeepSeekText.HasValue && game.SendDeepSeekText.Value)
@@ -249,11 +313,12 @@ namespace Impostor.Server.GameRecorder
 
                             return analysis;
                         }
-                        else
-                        {
-                            Program.LogToConsole($"房间 {roomCode} 的SendDeepSeekText为{(game.SendDeepSeekText.HasValue ? "false" : "null")}，不自动发送分析结果", ConsoleColor.Yellow);
-                            return analysis;
-                        }
+                    }
+                    else
+                    {
+                        // 如果 game 为 null，分析结果已经保存在 recorder 中
+                        // 等待玩家加入时再同步到新的 Game 对象
+                        Program.LogToConsole($"房间 {roomCode} 的Game对象为null，分析结果已保存到记录器", ConsoleColor.Yellow);
                     }
 
                     return analysis;
@@ -300,6 +365,7 @@ namespace Impostor.Server.GameRecorder
         }
 
         // ============== 玩家进入房间处理 ==============
+        // 修改 GameRecorderMain.OnPlayerJoinedRoom 方法
         internal static async Task OnPlayerJoinedRoom(string roomCode, Impostor.Server.Net.State.Game game, Impostor.Api.Net.Inner.Objects.IInnerPlayerControl playerControl)
         {
             if (game == null || playerControl == null) return;
@@ -309,6 +375,14 @@ namespace Impostor.Server.GameRecorder
             {
                 // 没有记录器，可能是新房间
                 return;
+            }
+
+            // 关键修复：检查记录器中是否有 AI 分析结果，并同步到 Game 对象
+            if (!string.IsNullOrEmpty(recorder.DeepSeekText))
+            {
+                // 同步记录器中的 AI 分析结果到 Game 对象
+                game.DeepSeekText = recorder.DeepSeekText;
+                game.SendDeepSeekText = recorder.SendDeepSeekText ?? game.SendDeepSeekText;
             }
 
             // 检查是否有DeepSeekText分析结果
@@ -324,6 +398,7 @@ namespace Impostor.Server.GameRecorder
                     if (game.SendDeepSeekText.HasValue && game.SendDeepSeekText.Value)
                     {
                         game.SendDeepSeekText = false;
+                        recorder.SendDeepSeekText = false; // 同时更新记录器
                     }
                 }
                 catch (Exception ex)
@@ -411,6 +486,7 @@ namespace Impostor.Server.GameRecorder
         {
             public static NanoMessage Message { get; set; }
 
+            // 修改 GameStateRecorder.OnGameStarted 方法
             internal static void OnGameStarted(string roomCode, Impostor.Server.Net.State.Game game = null)
             {
                 var recorder = GetOrCreateRoomRecorder(roomCode);
@@ -422,6 +498,14 @@ namespace Impostor.Server.GameRecorder
                 if (game != null)
                 {
                     game.SendDeepSeekText = true;
+
+                    // 关键修复：检查记录器中是否有旧的 AI 分析结果，并同步到新的 Game 对象
+                    if (!string.IsNullOrEmpty(recorder.DeepSeekText))
+                    {
+                        Program.LogToConsole($"房间 {roomCode} 发现旧的AI分析结果，同步到新游戏", ConsoleColor.Yellow);
+                        game.DeepSeekText = recorder.DeepSeekText;
+                        game.SendDeepSeekText = recorder.SendDeepSeekText ?? true;
+                    }
                 }
             }
 
