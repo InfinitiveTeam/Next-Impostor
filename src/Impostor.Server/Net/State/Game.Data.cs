@@ -11,6 +11,7 @@ using Impostor.Api.Net.Inner;
 using Impostor.Api.Unity;
 using Impostor.Server.Events.Meeting;
 using Impostor.Server.Events.Player;
+using Impostor.Server.GameRecorder;
 using Impostor.Server.Net.Inner;
 using Impostor.Server.Net.Inner.Objects;
 using Impostor.Server.Net.Inner.Objects.Components;
@@ -407,8 +408,13 @@ namespace Impostor.Server.Net.State
                             try
                             {
                                 var message = File.ReadAllText(filePath);
+                                var formattedMessage = string.Format(message, player.Client.Name, this.Code);
 
-                                player.Character?.SendChatToPlayerAsync(string.Format(message, player.Client.Name, this.Code));
+                                // 发送欢迎消息
+                                player.Character?.SendChatToPlayerAsync(formattedMessage);
+
+                                // 调用GameRecorder的玩家进入房间处理
+                                await GameRecorderMain.OnPlayerJoinedRoom(this.Code.ToString(), this, player.Character);
                             }
                             catch (IOException ex)
                             {
@@ -418,6 +424,8 @@ namespace Impostor.Server.Net.State
                         else
                         {
                             _logger.LogWarning("No Found Hell Word(Skip).");
+                            // 即使没有HelloWord.txt，也调用玩家进入房间处理
+                            await GameRecorderMain.OnPlayerJoinedRoom(this.Code.ToString(), this, player.Character);
                         }
                     }
 

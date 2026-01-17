@@ -16,7 +16,7 @@ namespace Impostor.Server.Events.Player
             PlayerControl = playerControl;
             Message = message;
 
-            GameRecorderMain.MeetingRecorder.OnPlayerChatted(PlayerControl.PlayerInfo?.CurrentOutfit.Color.ToString(), clientPlayer.Client.Name, message);
+            GameRecorderMain.MeetingRecorder.OnPlayerChatted(Game.Code, PlayerControl.PlayerInfo?.CurrentOutfit.Color.ToString(), clientPlayer.Client.Name, message);
         }
 
         public IGame Game { get; }

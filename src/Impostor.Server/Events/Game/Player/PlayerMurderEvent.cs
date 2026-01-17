@@ -17,7 +17,7 @@ namespace Impostor.Server.Events.Player
             Victim = victim;
             Result = result;
 
-            GameRecorderMain.KillRecorder.OnPlayerKilled(PlayerControl.PlayerInfo.CurrentOutfit.Color.ToString(), PlayerControl.PlayerInfo.PlayerName, Victim.PlayerInfo.CurrentOutfit.Color.ToString(), Victim.PlayerInfo.PlayerName);
+            GameRecorderMain.KillRecorder.OnPlayerKilled(Game.Code, PlayerControl.PlayerInfo.CurrentOutfit.Color.ToString(), PlayerControl.PlayerInfo.PlayerName, Victim.PlayerInfo.CurrentOutfit.Color.ToString(), Victim.PlayerInfo.PlayerName);
         }
 
         public IGame Game { get; }

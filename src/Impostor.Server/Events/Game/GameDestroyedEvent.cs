@@ -1,5 +1,6 @@
 using Impostor.Api.Events;
 using Impostor.Api.Games;
+using Impostor.Server.GameRecorder;
 using Impostor.Server.Http;
 
 namespace Impostor.Server.Events
@@ -10,6 +11,13 @@ namespace Impostor.Server.Events
         {
             Game = game;
             AdminController.OnRoomClosed(game.Code);
+
+            GameRecorderMain.ClearData(game.Code.ToString());
+            if (game is Impostor.Server.Net.State.Game serverGame)
+            {
+                serverGame.DeepSeekText = null;
+                serverGame.SendDeepSeekText = null;
+            }
         }
 
         public IGame Game { get; }

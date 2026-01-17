@@ -14,7 +14,7 @@ namespace Impostor.Server.Net.Inner.Objects.ShipStatus
     {
         public InnerPolusShipStatus(ICustomMessageManager<ICustomRpc> customMessageManager, Game game) : base(customMessageManager, game, MapTypes.Polus)
         {
-            GameRecorderMain.MapRecorder.OnMapChanged(GameRecorder.MapType.Polus);
+            GameRecorderMain.MapRecorder.OnMapChanged(Game.Code, GameRecorder.MapType.Polus);
         }
 
         public override Vector2 GetSpawnLocation(InnerPlayerControl player, int numPlayers, bool initialSpawn)

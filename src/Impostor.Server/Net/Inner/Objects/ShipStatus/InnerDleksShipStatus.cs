@@ -13,7 +13,7 @@ namespace Impostor.Server.Net.Inner.Objects.ShipStatus
     {
         public InnerDleksShipStatus(ICustomMessageManager<ICustomRpc> customMessageManager, Game game) : base(customMessageManager, game, MapTypes.Dleks)
         {
-            GameRecorderMain.MapRecorder.OnMapChanged(GameRecorder.MapType.Dleks);
+            GameRecorderMain.MapRecorder.OnMapChanged(Game.Code, GameRecorder.MapType.Dleks);
         }
 
         protected override void AddSystems(Dictionary<SystemTypes, ISystemType> systems)

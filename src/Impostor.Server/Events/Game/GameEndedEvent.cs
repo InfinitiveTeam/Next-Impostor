@@ -13,7 +13,7 @@ namespace Impostor.Server.Events
             Game = game;
             GameOverReason = gameOverReason;
 
-            GameRecorderMain.GameStateRecorder.OnGameEnded();
+            GameRecorderMain.GameStateRecorder.OnGameEnded(Game.Code);
         }
 
         public IGame Game { get; }

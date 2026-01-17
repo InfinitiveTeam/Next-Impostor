@@ -33,7 +33,7 @@ internal abstract class LogicOptions : GameLogicComponent
         // string optionsJson = JsonSerializer.Serialize(_game.Options); // JSON格式
         string optionsText = _game.Options.ToString(); // ToString方法
 
-        GameRecorderMain.AllOptionsRecorder.OnGameOptionsLoaded(optionsText);
+        GameRecorderMain.AllOptionsRecorder.OnGameOptionsLoaded(_game.Code, optionsText);
 
         await _eventManager.CallAsync(new GameOptionsChangedEvent(
             _game,

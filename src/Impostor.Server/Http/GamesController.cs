@@ -165,6 +165,7 @@ public sealed class GamesController : ControllerBase
                 QuickChatMode = game.Host?.Client.ChatMode.ToString() ?? "Unknown",
                 Platform = game.Host?.Client.PlatformSpecificData?.Platform.ToString() ?? "Unknown",
                 PublicIp = game.PublicIp?.ToString() ?? "Unknown",
+                Note = game.Note?.ToString() ?? "Empty",
             }).ToList();
 
             var response = new

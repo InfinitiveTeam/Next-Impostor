@@ -31,7 +31,7 @@ namespace Impostor.Server.Net.Inner.Objects.ShipStatus
             Doors = new Dictionary<int, bool>(Data.Doors.Count);
 
             var recorderMapType = MapTypesToRecorderMapType(mapType);
-            GameRecorderMain.MapRecorder.OnMapChanged(recorderMapType);
+            GameRecorderMain.MapRecorder.OnMapChanged(Game.Code, recorderMapType);
         }
 
         private GameRecorder.MapType MapTypesToRecorderMapType(MapTypes mapType)

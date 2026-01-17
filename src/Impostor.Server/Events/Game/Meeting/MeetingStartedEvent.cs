@@ -15,7 +15,7 @@ namespace Impostor.Server.Events.Meeting
             MeetingHud = meetingHud;
 
             var players = Game.Players.ToArray().Where(p => Game.GetClientPlayer(p.Client.Id)?.Character?.PlayerInfo?.IsDead != true);
-            GameRecorderMain.MeetingRecorder.OnMeetingOpened($"会议已开启，当前存活玩家列表：【{string.Join(", ", players)}】");
+            GameRecorderMain.MeetingRecorder.OnMeetingOpened(Game.Code, $"会议已开启，当前存活玩家列表：【{string.Join(", ", players)}】");
         }
 
         public IGame Game { get; }

@@ -288,6 +288,12 @@ namespace Impostor.Server.Net.Inner.Objects
                     }
 
                     Rpc13SendChat.Deserialize(reader, out var message);
+                    if (sender.IsHost && message.Contains("/note"))
+                    {
+                        Game.Note = message.Replace("/note ", string.Empty);
+                        sender?.Character?.SendChatToPlayerAsync("已备注");
+                        return false;
+                    }
                     return await HandleSendChat(sender, message);
                 }
 

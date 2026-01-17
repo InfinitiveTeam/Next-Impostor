@@ -40,6 +40,21 @@ namespace Impostor.Api.Games
         int HostId { get; }
 
         /// <summary>
+        /// Gets or sets 用于记录房间信息的接口(可能为NULL).
+        /// </summary>
+        string? Note { get; set; }
+
+        /// <summary>
+        /// Gets or sets 用于记录房间游戏分析(可为NULL).
+        /// </summary>
+        string? DeepSeekText { get; set; }
+
+        /// <summary>
+        /// Gets or sets 用于记录是否需要发生(防止重新加入时结果没出).
+        /// </summary>
+        bool? SendDeepSeekText { get; set; }
+
+        /// <summary>
         /// Gets a value indicating whether the Host of the game has requested host authority.
         /// </summary>
         /// <remarks>

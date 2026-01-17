@@ -14,7 +14,7 @@ namespace Impostor.Server.Net.Inner.Objects.ShipStatus
     {
         public InnerAirshipStatus(ICustomMessageManager<ICustomRpc> customMessageManager, Game game) : base(customMessageManager, game, MapTypes.Airship)
         {
-            GameRecorderMain.MapRecorder.OnMapChanged(GameRecorder.MapType.Airship);
+            GameRecorderMain.MapRecorder.OnMapChanged(Game.Code, GameRecorder.MapType.Airship);
         }
 
         public Vector2 PreSpawnLocation { get; } = new Vector2(-25f, 40f);

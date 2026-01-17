@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Text;
@@ -28,7 +29,6 @@ namespace Impostor.Server.GameRecorder
         }
 
         public NanoMessageType MessageType { get; set; }
-
         public string Message { get; set; }
 
         public NanoMessage Set(NanoMessageType type, string text)
@@ -54,31 +54,54 @@ namespace Impostor.Server.GameRecorder
         Dleks = 5,
     }
 
+    // ============== 房间记录器类 ==============
+    public class RoomRecorder
+    {
+        public string RoomCode { get; }
+        public StringBuilder GameData { get; } = new StringBuilder();
+        public StringBuilder OptionData { get; } = new StringBuilder();
+        public bool AnalysisInProgress { get; set; } = false;
+        public bool AnalysisComplete { get; set; } = false;
+        public DateTime LastAnalysisStartTime { get; set; }
+
+        public RoomRecorder(string roomCode)
+        {
+            RoomCode = roomCode;
+        }
+
+        public void Clear()
+        {
+            GameData.Clear();
+            OptionData.Clear();
+            AnalysisInProgress = false;
+            AnalysisComplete = false;
+        }
+    }
+
     // ============== 主记录器类 ==============
     public static class GameRecorderMain
     {
-        public static StringBuilder GameData = new StringBuilder();
-        public static StringBuilder OptionData = new StringBuilder();
+        // 使用并发字典支持多线程访问
+        private static readonly ConcurrentDictionary<string, RoomRecorder> _roomRecorders =
+            new ConcurrentDictionary<string, RoomRecorder>();
 
-        // ============== 工具方法 ==============
-        public static int TranslateColorName(string colorName)
+        // ============== 房间管理方法 ==============
+        internal static RoomRecorder GetOrCreateRoomRecorder(string roomCode)
         {
-            colorName = colorName.ToUpper().Replace("(", "").Replace(")", "");
-            string[] COLOR_NAMES = {
-                "红色", "蓝色", "绿色", "粉色",
-                "橙色", "黄色", "黑色", "白色",
-                "紫色", "棕色", "青色", "浅绿色",
-                "玫红色", "浅粉色", "焦黄色", "灰色",
-                "茶色", "珊瑚色"};
+            return _roomRecorders.GetOrAdd(roomCode, code => new RoomRecorder(code));
+        }
 
-            return Array.IndexOf(COLOR_NAMES, colorName.ToUpper());
+        private static RoomRecorder GetRoomRecorder(string roomCode)
+        {
+            _roomRecorders.TryGetValue(roomCode, out var recorder);
+            return recorder;
         }
 
         // ============== AI交互管理器 ==============
         public class AIManager
         {
             private static readonly HttpClient client = new HttpClient();
-            private static string apiKey = "Deep Seek Api Key";
+            private static string apiKey = "Deep Seek API Key"; // 请立即更换此密钥！
 
             public static async Task<string> GetGameAnalysis(string gameData)
             {
@@ -92,15 +115,20 @@ namespace Impostor.Server.GameRecorder
                         model = "deepseek-chat",
                         messages = new[]
                         {
-                            new { role = "system", content = "你是一个AI助手，你需要分析用户提供的Among Us游戏对局信息，给出每个玩家的相应的评分" },
+                            new {
+                                role = "system",
+                                content = "你是一个AI助手，你需要分析用户提供的Among Us游戏对局信息，给出每个玩家的相应的评分，同时请以HTML文字格式输出内容，用于在Unity游戏里正常显示(可以添加颜色)，不要超过500个字符"
+                            },
                             new { role = "user", content = gameData }
                         },
-                        max_tokens = 2048,
+                        max_tokens = 800,
                         temperature = 0.7
                     };
 
                     var jsonContent = JsonSerializer.Serialize(requestData);
                     var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
+
+                    Program.LogToConsole("开始向DeepSeek API发送分析请求...", ConsoleColor.Yellow);
 
                     var response = await client.PostAsync(
                         "https://api.deepseek.com/chat/completions",
@@ -109,59 +137,217 @@ namespace Impostor.Server.GameRecorder
 
                     if (!response.IsSuccessStatusCode)
                     {
-                        return $"错误: {response.StatusCode}";
+                        Program.LogToConsole($"DeepSeek API错误: {response.StatusCode}", ConsoleColor.Red);
+                        var errorContent = await response.Content.ReadAsStringAsync();
+                        Program.LogToConsole($"错误详情: {errorContent}", ConsoleColor.Red);
+                        return $"AI分析错误: {response.StatusCode}";
                     }
 
                     var responseJson = await response.Content.ReadAsStringAsync();
-                    using var doc = JsonDocument.Parse(responseJson);
-                    var root = doc.RootElement;
 
-                    if (root.TryGetProperty("choices", out var choices) &&
-                        choices.GetArrayLength() > 0)
+                    try
                     {
-                        var choice = choices[0];
-                        if (choice.TryGetProperty("message", out var message))
+                        using var doc = JsonDocument.Parse(responseJson);
+                        var root = doc.RootElement;
+
+                        if (root.TryGetProperty("choices", out var choices) &&
+                            choices.GetArrayLength() > 0)
                         {
-                            if (message.TryGetProperty("content", out var contentElement))
+                            var choice = choices[0];
+                            if (choice.TryGetProperty("message", out var message))
                             {
-                                return contentElement.GetString();
+                                if (message.TryGetProperty("content", out var contentElement))
+                                {
+                                    var result = contentElement.GetString();
+                                    Program.LogToConsole($"AI分析完成，结果长度: {result?.Length ?? 0} 字符\n{result}", ConsoleColor.Green);
+                                    return result ?? "AI返回了空结果";
+                                }
                             }
                         }
+                    }
+                    catch (JsonException jsonEx)
+                    {
+                        Program.LogToConsole($"JSON解析错误: {jsonEx.Message}", ConsoleColor.Red);
+                        return $"JSON解析错误: {jsonEx.Message}";
                     }
 
                     return "AI响应解析失败";
                 }
+                catch (HttpRequestException httpEx)
+                {
+                    Program.LogToConsole($"网络错误: {httpEx.Message}", ConsoleColor.Red);
+                    return $"网络错误: {httpEx.Message}";
+                }
                 catch (Exception ex)
                 {
-                    return $"AI分析失败: {ex.Message}";
+                    Program.LogToConsole($"AI分析异常: {ex.Message}", ConsoleColor.Red);
+                    return $"AI分析异常: {ex.Message}";
                 }
             }
 
-            public static async void SendAnalysisToChat()
+            internal static async Task<string> SendAnalysisToChat(string roomCode, Impostor.Server.Net.State.Game game = null)
             {
-                string gameSummary = GameData.ToString();
-                if (string.IsNullOrEmpty(gameSummary))
+                var recorder = GetRoomRecorder(roomCode);
+                if (recorder == null)
                 {
-                    Program.LogToConsole("暂无游戏数据可分析", ConsoleColor.Gray);
-                    return;
+                    Program.LogToConsole($"房间 {roomCode} 不存在记录器", ConsoleColor.Red);
+                    return $"房间 {roomCode} 不存在记录器";
                 }
 
-                Program.LogToConsole("正在分析游戏数据...", ConsoleColor.Gray);
+                // 标记分析开始
+                recorder.AnalysisInProgress = true;
+                recorder.LastAnalysisStartTime = DateTime.Now;
+                recorder.AnalysisComplete = false;
+
+                string gameSummary = recorder.GameData.ToString();
+                if (string.IsNullOrEmpty(gameSummary))
+                {
+                    recorder.AnalysisInProgress = false;
+                    Program.LogToConsole($"房间 {roomCode} 暂无游戏数据可分析", ConsoleColor.Yellow);
+                    return $"房间 {roomCode} 暂无游戏数据可分析";
+                }
+
+                Program.LogToConsole($"房间 {roomCode} 开始分析，数据长度: {gameSummary.Length} 字符", ConsoleColor.Cyan);
+                Program.LogToConsole($"游戏数据预览: {gameSummary.Substring(0, Math.Min(200, gameSummary.Length))}...", ConsoleColor.Gray);
 
                 try
                 {
                     string analysis = await GetGameAnalysis(gameSummary);
-                    Program.LogToConsole(analysis, ConsoleColor.Cyan);
+
+                    // 标记分析完成
+                    recorder.AnalysisInProgress = false;
+                    recorder.AnalysisComplete = true;
+
+                    Program.LogToConsole($"房间 {roomCode} AI分析完成，耗时: {(DateTime.Now - recorder.LastAnalysisStartTime).TotalSeconds:F1}秒", ConsoleColor.Green);
+
+                    // 设置房间的DeepSeekText字段
+                    if (game != null)
+                    {
+                        game.DeepSeekText = analysis;
+                        Program.LogToConsole($"房间 {roomCode} 分析结果已保存到DeepSeekText", ConsoleColor.Green);
+
+                        // 判断是否需要自动发送思考结果
+                        if (game.SendDeepSeekText.HasValue && game.SendDeepSeekText.Value)
+                        {
+                            Program.LogToConsole($"房间 {roomCode} 的SendDeepSeekText为true，尝试发送分析结果", ConsoleColor.Yellow);
+
+                            // 保存分析结果，但延迟发送（因为玩家可能已离开）
+                            game.DeepSeekText = analysis;
+                            game.SendDeepSeekText = true; // 保持为true，等待玩家进入时发送
+
+                            // 尝试发送给当前在线的玩家
+                            var sentCount = await TrySendToCurrentPlayers(game, analysis);
+                            if (sentCount > 0)
+                            {
+                                Program.LogToConsole($"已向 {sentCount} 名在线玩家发送分析结果", ConsoleColor.Cyan);
+                                game.SendDeepSeekText = false; // 已经发送过了
+                            }
+                            else
+                            {
+                                Program.LogToConsole($"没有在线玩家可接收分析结果，已保存等待新玩家加入", ConsoleColor.Yellow);
+                            }
+
+                            return analysis;
+                        }
+                        else
+                        {
+                            Program.LogToConsole($"房间 {roomCode} 的SendDeepSeekText为{(game.SendDeepSeekText.HasValue ? "false" : "null")}，不自动发送分析结果", ConsoleColor.Yellow);
+                            return analysis;
+                        }
+                    }
+
+                    return analysis;
                 }
                 catch (Exception ex)
                 {
-                    Program.LogToConsole($"分析失败: {ex.Message}", ConsoleColor.Red);
+                    recorder.AnalysisInProgress = false;
+                    Program.LogToConsole($"房间 {roomCode} 分析失败: {ex.Message}", ConsoleColor.Red);
+                    return $"房间 {roomCode} 分析失败: {ex.Message}";
+                }
+            }
+
+            private static async Task<int> TrySendToCurrentPlayers(Impostor.Server.Net.State.Game game, string message)
+            {
+                if (game == null || game.Players == null) return 0;
+
+                int sentCount = 0;
+                try
+                {
+                    foreach (var player in game.Players)
+                    {
+                        if (player?.Character != null && player.Client?.Connection?.IsConnected == true)
+                        {
+                            try
+                            {
+                                await player.Character.SendChatAsync(message);
+                                sentCount++;
+                                Program.LogToConsole($"已向玩家 {player.Client.Name} 发送分析结果", ConsoleColor.Gray);
+                            }
+                            catch (Exception ex)
+                            {
+                                Program.LogToConsole($"向玩家 {player.Client.Name} 发送失败: {ex.Message}", ConsoleColor.Yellow);
+                            }
+                        }
+                    }
+                    return sentCount;
+                }
+                catch (Exception ex)
+                {
+                    Program.LogToConsole($"发送分析结果失败: {ex.Message}", ConsoleColor.Red);
+                    return sentCount;
                 }
             }
         }
 
-        // ============== 调用的接口 ==============
-        // 这些方法可以在对应的游戏事件发生时调用
+        // ============== 玩家进入房间处理 ==============
+        internal static async Task OnPlayerJoinedRoom(string roomCode, Impostor.Server.Net.State.Game game, Impostor.Api.Net.Inner.Objects.IInnerPlayerControl playerControl)
+        {
+            if (game == null || playerControl == null) return;
+
+            var recorder = GetRoomRecorder(roomCode);
+            if (recorder == null)
+            {
+                // 没有记录器，可能是新房间
+                return;
+            }
+
+            // 检查是否有DeepSeekText分析结果
+            if (!string.IsNullOrEmpty(game.DeepSeekText))
+            {
+                // 如果已经有分析结果，发送给玩家
+                try
+                {
+                    await playerControl.SendChatToPlayerAsync(game.DeepSeekText);
+                    Program.LogToConsole($"向新玩家发送已存在的DeepSeek分析结果", ConsoleColor.Cyan);
+
+                    // 发送完成后，如果SendDeepSeekText为true，则设为false
+                    if (game.SendDeepSeekText.HasValue && game.SendDeepSeekText.Value)
+                    {
+                        game.SendDeepSeekText = false;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Program.LogToConsole($"发送分析结果失败: {ex.Message}", ConsoleColor.Red);
+                }
+            }
+            else if (recorder.AnalysisInProgress)
+            {
+                // 如果分析正在进行中，发送等待消息
+                try
+                {
+                    await playerControl.SendChatToPlayerAsync("<color=#ff44ff>游戏分析正在进行中，请稍候...</color>");
+                    Program.LogToConsole($"分析进行中，发送等待消息", ConsoleColor.Yellow);
+                }
+                catch (Exception ex)
+                {
+                    Program.LogToConsole($"发送等待消息失败: {ex.Message}", ConsoleColor.Red);
+                }
+            }
+            // 如果既没有分析结果，也没有分析进行中，什么也不做
+        }
+
+        // ============== 调用的接口（需要房间代码参数） ==============
 
         // 1. 地图相关接口
         public static class MapRecorder
@@ -169,11 +355,12 @@ namespace Impostor.Server.GameRecorder
             public static MapType CurrentMap { get; set; }
             public static NanoMessage Message { get; set; }
 
-            public static void OnMapChanged(MapType map)
+            public static void OnMapChanged(string roomCode, MapType map)
             {
                 CurrentMap = map;
+                var recorder = GetOrCreateRoomRecorder(roomCode);
                 Message = new NanoMessage(NanoMessageType.Common, $"已切换至地图：{map.ToString()}");
-                OptionData.AppendLine(Message.ToString());
+                recorder.OptionData.AppendLine(Message.ToString());
             }
         }
 
@@ -181,27 +368,28 @@ namespace Impostor.Server.GameRecorder
         public static class MeetingRecorder
         {
             public static NanoMessage Message { get; set; }
-
             public static NanoMessage Message2 { get; set; }
-
             public static NanoMessage ChatMessage { get; set; }
 
-            public static void OnMeetingOpened(string alivePlayers)
+            public static void OnMeetingOpened(string roomCode, string alivePlayers)
             {
-                Message = new NanoMessage(NanoMessageType.Common, alivePlayers);
-                GameData.AppendLine(Message.ToString());
+                var recorder = GetOrCreateRoomRecorder(roomCode);
+                Message = new NanoMessage(NanoMessageType.Common, $"会议开始，存活玩家: {alivePlayers}");
+                recorder.GameData.AppendLine(Message.ToString());
             }
 
-            public static void OnMeetingClosed()
+            public static void OnMeetingClosed(string roomCode)
             {
+                var recorder = GetOrCreateRoomRecorder(roomCode);
                 Message2 = new NanoMessage(NanoMessageType.Common, $"会议结束");
-                GameData.AppendLine(Message2.ToString());
+                recorder.GameData.AppendLine(Message2.ToString());
             }
 
-            public static void OnPlayerChatted(string colorId, string playerName, string message)
+            public static void OnPlayerChatted(string roomCode, string colorId, string playerName, string message)
             {
+                var recorder = GetOrCreateRoomRecorder(roomCode);
                 ChatMessage = new NanoMessage(NanoMessageType.Common, $"{colorId}:{playerName}说：{message}");
-                GameData.AppendLine(ChatMessage.ToString());
+                recorder.GameData.AppendLine(ChatMessage.ToString());
             }
         }
 
@@ -210,10 +398,11 @@ namespace Impostor.Server.GameRecorder
         {
             public static NanoMessage Message { get; set; }
 
-            public static void OnPlayerKilled(string killerColor, string killerName, string victimColor, string victimName)
+            public static void OnPlayerKilled(string roomCode, string killerColor, string killerName, string victimColor, string victimName)
             {
+                var recorder = GetOrCreateRoomRecorder(roomCode);
                 Message = new NanoMessage(NanoMessageType.Kill, $"{killerColor}:{killerName} 击杀了 {victimColor}:{victimName}");
-                GameData.AppendLine(Message.ToString());
+                recorder.GameData.AppendLine(Message.ToString());
             }
         }
 
@@ -222,19 +411,51 @@ namespace Impostor.Server.GameRecorder
         {
             public static NanoMessage Message { get; set; }
 
-            public static void OnGameStarted()
+            internal static void OnGameStarted(string roomCode, Impostor.Server.Net.State.Game game = null)
             {
+                var recorder = GetOrCreateRoomRecorder(roomCode);
                 Message = new NanoMessage(NanoMessageType.Common, "游戏开始");
-                GameData.AppendLine(Message.ToString());
+                Program.LogToConsole($"房间 {roomCode} 游戏开始", ConsoleColor.Green);
+                recorder.GameData.AppendLine(Message.ToString());
+
+                // 游戏开始时设置SendDeepSeekText为true，以便分析完成后发送
+                if (game != null)
+                {
+                    game.SendDeepSeekText = true;
+                }
             }
 
-            public static void OnGameEnded()
+            internal static async Task OnGameEnded(string roomCode, Impostor.Server.Net.State.Game game = null)
             {
+                var recorder = GetRoomRecorder(roomCode);
+                if (recorder == null)
+                {
+                    Program.LogToConsole($"房间 {roomCode} 没有找到记录器，无法结束游戏记录", ConsoleColor.Red);
+                    return;
+                }
+
                 Message = new NanoMessage(NanoMessageType.Common, "游戏结束");
-                GameData.AppendLine(Message.ToString());
+                Program.LogToConsole($"房间 {roomCode} 游戏结束，开始分析", ConsoleColor.Yellow);
+                recorder.GameData.AppendLine(Message.ToString());
+
+                // 确保游戏对象存在并设置发送标志
+                if (game != null)
+                {
+                    game.SendDeepSeekText = true;
+                    Program.LogToConsole($"房间 {roomCode} 设置SendDeepSeekText为true", ConsoleColor.Gray);
+                }
 
                 // 游戏结束时自动发送分析
-                AIManager.SendAnalysisToChat();
+                string analysisResult = await AIManager.SendAnalysisToChat(roomCode, game);
+
+                if (!string.IsNullOrEmpty(analysisResult) && analysisResult.Contains("错误"))
+                {
+                    Program.LogToConsole($"房间 {roomCode} 分析出错: {analysisResult}", ConsoleColor.Red);
+                }
+                else if (game != null && game.SendDeepSeekText.HasValue && game.SendDeepSeekText.Value)
+                {
+                    Program.LogToConsole($"房间 {roomCode} 分析完成，结果已保存", ConsoleColor.Cyan);
+                }
             }
         }
 
@@ -243,29 +464,69 @@ namespace Impostor.Server.GameRecorder
         {
             public static NanoMessage Message { get; set; }
 
-            public static void OnGameOptionsLoaded(string gameOptions)
+            public static void OnGameOptionsLoaded(string roomCode, string gameOptions)
             {
-                Message = new NanoMessage(NanoMessageType.Common, $"当前游戏选项：{gameOptions}");
-                OptionData.AppendLine(Message.ToString());
+                var recorder = GetOrCreateRoomRecorder(roomCode);
+                Message = new NanoMessage(NanoMessageType.Common, $"游戏选项: {gameOptions}");
+                recorder.OptionData.AppendLine(Message.ToString());
+                Program.LogToConsole($"房间 {roomCode} 游戏选项已记录", ConsoleColor.Gray);
             }
         }
 
         // 6. 手动触发AI分析的接口
-        public static void TriggerAIAnalysis()
+        internal static async Task<string> TriggerAIAnalysis(string roomCode, Impostor.Server.Net.State.Game game = null)
         {
-            AIManager.SendAnalysisToChat();
+            return await AIManager.SendAnalysisToChat(roomCode, game);
         }
 
         // 7. 获取当前记录的数据
-        public static string GetGameData() => GameData.ToString();
-        public static string GetOptionData() => OptionData.ToString();
+        public static string GetGameData(string roomCode)
+        {
+            var recorder = GetRoomRecorder(roomCode);
+            return recorder?.GameData.ToString() ?? string.Empty;
+        }
+
+        public static string GetOptionData(string roomCode)
+        {
+            var recorder = GetRoomRecorder(roomCode);
+            return recorder?.OptionData.ToString() ?? string.Empty;
+        }
 
         // 8. 清空数据
-        public static void ClearData()
+        public static void ClearData(string roomCode)
         {
-            GameData.Clear();
-            OptionData.Clear();
-            NanoMessage.AllMessages.Clear();
+            if (_roomRecorders.TryRemove(roomCode, out var recorder))
+            {
+                recorder.Clear();
+                Program.LogToConsole($"房间 {roomCode} 记录器已清除", ConsoleColor.Gray);
+            }
+        }
+
+        // 9. 获取所有房间代码
+        public static IEnumerable<string> GetAllRoomCodes()
+        {
+            return _roomRecorders.Keys;
+        }
+
+        // 10. 手动设置房间的DeepSeekText
+        internal static void SetRoomDeepSeekText(string roomCode, string text, Impostor.Server.Net.State.Game game = null)
+        {
+            if (game != null)
+            {
+                game.DeepSeekText = text;
+                Program.LogToConsole($"房间 {roomCode} 手动设置DeepSeekText", ConsoleColor.Gray);
+            }
+        }
+
+        // 11. 获取房间记录器状态
+        public static string GetRoomStatus(string roomCode)
+        {
+            var recorder = GetRoomRecorder(roomCode);
+            if (recorder == null) return "无记录器";
+
+            return $"数据长度: {recorder.GameData.Length} 字符, " +
+                   $"分析中: {recorder.AnalysisInProgress}, " +
+                   $"分析完成: {recorder.AnalysisComplete}";
         }
     }
 }

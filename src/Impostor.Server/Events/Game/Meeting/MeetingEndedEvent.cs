@@ -14,7 +14,7 @@ namespace Impostor.Server.Events.Meeting
             Exiled = exiled;
             IsTie = isTie;
 
-            GameRecorderMain.MeetingRecorder.OnMeetingClosed();
+            GameRecorderMain.MeetingRecorder.OnMeetingClosed(Game.Code);
         }
 
         public IGame Game { get; }

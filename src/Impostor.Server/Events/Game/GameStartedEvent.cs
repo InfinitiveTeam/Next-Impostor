@@ -1,5 +1,6 @@
-﻿using Impostor.Api.Events;
+using Impostor.Api.Events;
 using Impostor.Api.Games;
+using Impostor.Server.GameRecorder;
 
 namespace Impostor.Server.Events
 {
@@ -8,6 +9,8 @@ namespace Impostor.Server.Events
         public GameStartedEvent(IGame game)
         {
             Game = game;
+
+            GameRecorderMain.GameStateRecorder.OnGameStarted(Game.Code);
         }
 
         public IGame Game { get; }

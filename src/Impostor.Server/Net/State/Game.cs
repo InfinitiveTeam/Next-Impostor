@@ -81,6 +81,12 @@ namespace Impostor.Server.Net.State
 
         public int HostId { get; private set; }
 
+        public string? Note { get; set; }
+
+        public string? DeepSeekText { get; set; }
+
+        public bool? SendDeepSeekText { get; set; }
+
         public GameStates GameState { get; private set; }
 
         public IGameOptions Options { get; }
@@ -130,7 +136,6 @@ namespace Impostor.Server.Net.State
 
                 GameState = GameStates.Started;
 
-                GameRecorderMain.GameStateRecorder.OnGameStarted();
                 await _eventManager.CallAsync(new GameStartedEvent(this));
             }
         }

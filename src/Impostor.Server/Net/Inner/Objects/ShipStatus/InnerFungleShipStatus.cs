@@ -12,7 +12,7 @@ namespace Impostor.Server.Net.Inner.Objects.ShipStatus
     {
         public InnerFungleShipStatus(ICustomMessageManager<ICustomRpc> customMessageManager, Game game) : base(customMessageManager, game, MapTypes.Fungle)
         {
-            GameRecorderMain.MapRecorder.OnMapChanged(GameRecorder.MapType.Fungle);
+            GameRecorderMain.MapRecorder.OnMapChanged(Game.Code, GameRecorder.MapType.Fungle);
         }
 
         protected override void AddSystems(Dictionary<SystemTypes, ISystemType> systems)

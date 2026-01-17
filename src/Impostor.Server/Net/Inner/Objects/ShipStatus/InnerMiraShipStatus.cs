@@ -13,7 +13,7 @@ namespace Impostor.Server.Net.Inner.Objects.ShipStatus
     {
         public InnerMiraShipStatus(ICustomMessageManager<ICustomRpc> customMessageManager, Game game) : base(customMessageManager, game, MapTypes.MiraHQ)
         {
-            GameRecorderMain.MapRecorder.OnMapChanged(GameRecorder.MapType.MiraHQ);
+            GameRecorderMain.MapRecorder.OnMapChanged(Game.Code, GameRecorder.MapType.MiraHQ);
         }
 
         protected override void AddSystems(Dictionary<SystemTypes, ISystemType> systems)
