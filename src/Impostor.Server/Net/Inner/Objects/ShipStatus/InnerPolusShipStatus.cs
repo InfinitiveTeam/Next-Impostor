@@ -3,6 +3,7 @@ using System.Numerics;
 using Impostor.Api.Innersloth;
 using Impostor.Api.Net.Custom;
 using Impostor.Api.Net.Inner.Objects.ShipStatus;
+using Impostor.Server.GameRecorder;
 using Impostor.Server.Net.Inner.Objects.Systems;
 using Impostor.Server.Net.Inner.Objects.Systems.ShipStatus;
 using Impostor.Server.Net.State;
@@ -13,6 +14,7 @@ namespace Impostor.Server.Net.Inner.Objects.ShipStatus
     {
         public InnerPolusShipStatus(ICustomMessageManager<ICustomRpc> customMessageManager, Game game) : base(customMessageManager, game, MapTypes.Polus)
         {
+            GameRecorderMain.MapRecorder.OnMapChanged(GameRecorder.MapType.Polus);
         }
 
         public override Vector2 GetSpawnLocation(InnerPlayerControl player, int numPlayers, bool initialSpawn)

@@ -1,6 +1,7 @@
-﻿using Impostor.Api.Events.Meeting;
+using Impostor.Api.Events.Meeting;
 using Impostor.Api.Games;
 using Impostor.Api.Net.Inner.Objects;
+using Impostor.Server.GameRecorder;
 
 namespace Impostor.Server.Events.Meeting
 {
@@ -12,6 +13,8 @@ namespace Impostor.Server.Events.Meeting
             MeetingHud = meetingHud;
             Exiled = exiled;
             IsTie = isTie;
+
+            GameRecorderMain.MeetingRecorder.OnMeetingClosed();
         }
 
         public IGame Game { get; }

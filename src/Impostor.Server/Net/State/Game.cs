@@ -16,6 +16,7 @@ using Impostor.Api.Net.Inner.Objects;
 using Impostor.Api.Net.Manager;
 using Impostor.Api.Net.Messages.S2C;
 using Impostor.Server.Events;
+using Impostor.Server.GameRecorder;
 using Impostor.Server.Net.Manager;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -129,6 +130,7 @@ namespace Impostor.Server.Net.State
 
                 GameState = GameStates.Started;
 
+                GameRecorderMain.GameStateRecorder.OnGameStarted();
                 await _eventManager.CallAsync(new GameStartedEvent(this));
             }
         }

@@ -125,7 +125,7 @@ namespace Impostor.Server
             Console.WriteLine();
         }
 
-        private static void LogToConsole(string message, ConsoleColor color = ConsoleColor.White)
+        internal static void LogToConsole(string message, ConsoleColor color = ConsoleColor.White)
         {
             var originalColor = Console.ForegroundColor;
             Console.ForegroundColor = ConsoleColor.DarkGray;

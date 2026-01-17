@@ -1,7 +1,9 @@
-﻿using Impostor.Api.Events.Player;
+using System.Reflection;
+using Impostor.Api.Events.Player;
 using Impostor.Api.Games;
 using Impostor.Api.Net;
 using Impostor.Api.Net.Inner.Objects;
+using Impostor.Server.GameRecorder;
 
 namespace Impostor.Server.Events.Player
 {
@@ -13,6 +15,8 @@ namespace Impostor.Server.Events.Player
             ClientPlayer = clientPlayer;
             PlayerControl = playerControl;
             Message = message;
+
+            GameRecorderMain.MeetingRecorder.OnPlayerChatted(PlayerControl.PlayerInfo?.CurrentOutfit.Color.ToString(), clientPlayer.Client.Name, message);
         }
 
         public IGame Game { get; }

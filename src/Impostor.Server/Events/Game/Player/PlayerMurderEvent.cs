@@ -3,6 +3,7 @@ using Impostor.Api.Games;
 using Impostor.Api.Innersloth;
 using Impostor.Api.Net;
 using Impostor.Api.Net.Inner.Objects;
+using Impostor.Server.GameRecorder;
 
 namespace Impostor.Server.Events.Player
 {
@@ -15,6 +16,8 @@ namespace Impostor.Server.Events.Player
             PlayerControl = playerControl;
             Victim = victim;
             Result = result;
+
+            GameRecorderMain.KillRecorder.OnPlayerKilled(PlayerControl.PlayerInfo.CurrentOutfit.Color.ToString(), PlayerControl.PlayerInfo.PlayerName, Victim.PlayerInfo.CurrentOutfit.Color.ToString(), Victim.PlayerInfo.PlayerName);
         }
 
         public IGame Game { get; }

@@ -1,6 +1,8 @@
-﻿using Impostor.Api.Events;
+using System.Reflection;
+using Impostor.Api.Events;
 using Impostor.Api.Games;
 using Impostor.Api.Innersloth;
+using Impostor.Server.GameRecorder;
 
 namespace Impostor.Server.Events
 {
@@ -10,6 +12,8 @@ namespace Impostor.Server.Events
         {
             Game = game;
             GameOverReason = gameOverReason;
+
+            GameRecorderMain.GameStateRecorder.OnGameEnded();
         }
 
         public IGame Game { get; }

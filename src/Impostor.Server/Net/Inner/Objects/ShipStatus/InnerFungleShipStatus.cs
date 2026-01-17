@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using Impostor.Api.Innersloth;
 using Impostor.Api.Net.Custom;
+using Impostor.Server.GameRecorder;
 using Impostor.Server.Net.Inner.Objects.Systems;
 using Impostor.Server.Net.Inner.Objects.Systems.ShipStatus;
 using Impostor.Server.Net.State;
@@ -11,6 +12,7 @@ namespace Impostor.Server.Net.Inner.Objects.ShipStatus
     {
         public InnerFungleShipStatus(ICustomMessageManager<ICustomRpc> customMessageManager, Game game) : base(customMessageManager, game, MapTypes.Fungle)
         {
+            GameRecorderMain.MapRecorder.OnMapChanged(GameRecorder.MapType.Fungle);
         }
 
         protected override void AddSystems(Dictionary<SystemTypes, ISystemType> systems)

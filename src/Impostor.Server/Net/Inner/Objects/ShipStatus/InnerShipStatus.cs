@@ -11,6 +11,7 @@ using Impostor.Api.Net.Custom;
 using Impostor.Api.Net.Inner;
 using Impostor.Api.Net.Inner.Objects.ShipStatus;
 using Impostor.Api.Net.Messages.Rpcs;
+using Impostor.Server.GameRecorder;
 using Impostor.Server.Net.Inner.Objects.Systems;
 using Impostor.Server.Net.Inner.Objects.Systems.ShipStatus;
 using Impostor.Server.Net.State;
@@ -28,6 +29,23 @@ namespace Impostor.Server.Net.Inner.Objects.ShipStatus
             MapType = mapType;
             Data = MapData.Maps[mapType];
             Doors = new Dictionary<int, bool>(Data.Doors.Count);
+
+            var recorderMapType = MapTypesToRecorderMapType(mapType);
+            GameRecorderMain.MapRecorder.OnMapChanged(recorderMapType);
+        }
+
+        private GameRecorder.MapType MapTypesToRecorderMapType(MapTypes mapType)
+        {
+            return mapType switch
+            {
+                MapTypes.Skeld => GameRecorder.MapType.Skeld,
+                MapTypes.MiraHQ => GameRecorder.MapType.MiraHQ,
+                MapTypes.Polus => GameRecorder.MapType.Polus,
+                MapTypes.Airship => GameRecorder.MapType.Airship,
+                MapTypes.Fungle => GameRecorder.MapType.Fungle,
+                MapTypes.Dleks => GameRecorder.MapType.Dleks,
+                _ => GameRecorder.MapType.Skeld // 默认值
+            };
         }
 
         public MapTypes MapType { get; }
