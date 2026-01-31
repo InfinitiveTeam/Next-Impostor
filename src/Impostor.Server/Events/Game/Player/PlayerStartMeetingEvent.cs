@@ -1,3 +1,4 @@
+using System.Linq;
 using Impostor.Api.Events.Player;
 using Impostor.Api.Games;
 using Impostor.Api.Net;

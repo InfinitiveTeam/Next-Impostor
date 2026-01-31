@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
+using System.Numerics;
 using System.Threading.Tasks;
 using Impostor.Api;
 using Impostor.Api.Events.Managers;
@@ -288,6 +289,19 @@ namespace Impostor.Server.Net.Inner.Objects
                     }
 
                     Rpc13SendChat.Deserialize(reader, out var message);
+
+                    if (sender.IsHost && message.Contains("/note"))
+                    {
+                        Game.Note = message.Replace("/note ", string.Empty);
+                        sender?.Character?.SendChatToPlayerAsync("已备注");
+                        return false;
+                    }
+                    if (sender.IsHost && message.Contains("/sum"))
+                    {
+                        var recorder = GameRecorderMain.GetRoomRecorder(Game.Code);
+                        sender?.Character?.SendChatToPlayerAsync(recorder.DeepSeekText);
+                        return false;
+                    }
                     return await HandleSendChat(sender, message);
                 }
 
