@@ -3,6 +3,7 @@ using Impostor.Api.Games;
 using Impostor.Api.Innersloth.Maps;
 using Impostor.Api.Net;
 using Impostor.Api.Net.Inner.Objects;
+using Impostor.Server.GameRecorder;
 
 namespace Impostor.Server.Events.Player
 {

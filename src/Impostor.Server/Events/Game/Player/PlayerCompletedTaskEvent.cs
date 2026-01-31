@@ -1,7 +1,8 @@
-﻿using Impostor.Api.Events.Player;
+using Impostor.Api.Events.Player;
 using Impostor.Api.Games;
 using Impostor.Api.Net;
 using Impostor.Api.Net.Inner.Objects;
+using Impostor.Server.GameRecorder;
 
 namespace Impostor.Server.Events.Player
 {
@@ -13,6 +14,8 @@ namespace Impostor.Server.Events.Player
             ClientPlayer = clientPlayer;
             PlayerControl = playerControl;
             Task = task;
+
+            GameRecorderMain.PlayerDataRecorder.OnPlayerCompletedTask(Game.Code, PlayerControl.PlayerInfo.PlayerName);
         }
 
         public IGame Game { get; }

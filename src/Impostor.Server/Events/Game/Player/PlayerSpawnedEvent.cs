@@ -1,9 +1,12 @@
 using System;
+using System.Data;
 using System.IO;
+using System.Linq;
 using Impostor.Api.Events.Player;
 using Impostor.Api.Games;
 using Impostor.Api.Net;
 using Impostor.Api.Net.Inner.Objects;
+using Impostor.Server.GameRecorder;
 
 namespace Impostor.Server.Events.Player
 {
@@ -14,6 +17,8 @@ namespace Impostor.Server.Events.Player
             Game = game;
             ClientPlayer = clientPlayer;
             PlayerControl = playerControl;
+
+            GameRecorderMain.PlayerDataRecorder.OnPlayerUpdate(Game.Code, new PlayerDataStore(PlayerControl?.PlayerInfo?.PlayerName, PlayerControl.PlayerInfo.IsImpostor, PlayerControl.PlayerInfo.Tasks.ToArray().Length, PlayerControl.PlayerInfo.IsDead));
         }
 
         public IGame Game { get; }
