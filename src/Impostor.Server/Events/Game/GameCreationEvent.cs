@@ -3,6 +3,7 @@ using Impostor.Api.Events;
 using Impostor.Api.Games;
 using Impostor.Api.Games.Managers;
 using Impostor.Api.Net;
+using Impostor.Server.GameRecorder;
 
 namespace Impostor.Server.Events
 {
@@ -15,6 +16,10 @@ namespace Impostor.Server.Events
         {
             _gameManager = gameManager;
             Client = client;
+
+            // 记录游戏创建请求事件
+            string clientName = client?.Name ?? "未知";
+            GameRecorderMain.GameManagementRecorder.OnGameCreation("创建中", clientName);
         }
 
         public IClient? Client { get; }

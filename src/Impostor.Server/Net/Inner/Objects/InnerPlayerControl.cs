@@ -16,10 +16,10 @@ using Impostor.Api.Net.Inner.Objects;
 using Impostor.Api.Net.Messages.Rpcs;
 using Impostor.Api.Utils;
 using Impostor.Server.Events.Player;
-using Impostor.Server.GameRecorder;
 using Impostor.Server.Http;
 using Impostor.Server.Net.Inner.Objects.Components;
 using Impostor.Server.Net.State;
+using Impostor.Server.Service;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -288,12 +288,6 @@ namespace Impostor.Server.Net.Inner.Objects
                     }
 
                     Rpc13SendChat.Deserialize(reader, out var message);
-                    if (sender.IsHost && message.Contains("/note"))
-                    {
-                        Game.Note = message.Replace("/note ", string.Empty);
-                        sender?.Character?.SendChatToPlayerAsync("已备注");
-                        return false;
-                    }
                     return await HandleSendChat(sender, message);
                 }
 
@@ -1195,9 +1189,42 @@ namespace Impostor.Server.Net.Inner.Objects
             AdminController.OnPlayerChatMessage(_game.Code.ToString(), sender, message);
 
             var @event = new PlayerChatEvent(Game, sender, this, message);
+
+            // See https://github.com/Innersloth-LLC/AmongUsModdingInformation?tab=readme-ov-file#chat-commands
+            // Details not mentioned:
+            // - If the host sends a message that starts with /cmd, it is sent to all players
+            // - If the message starts with " /cmd" (note the space) it is sent to all players
+            if (Game.IsHostAuthoritive && !sender.IsHost && message.StartsWith("/cmd"))
+            {
+                @event.SendToAllPlayers = false;
+            }
+
+            if (sender.IsHost && message.Contains("/note"))
+            {
+                Game.Note = message.Replace("/note ", string.Empty);
+                sender?.Character?.SendChatToPlayerAsync(TranslateService.GetTranslateString(sender.Client.Language, "Note successful"));
+                @event.SendToAllPlayers = false;
+            }
+
             await _eventManager.CallAsync(@event);
 
-            return !@event.IsCancelled;
+            if (@event.IsCancelled)
+            {
+                return false;
+            }
+            else if (@event.SendToAllPlayers == false)
+            {
+                if (Game.Host != null)
+                {
+                    await SendChatToPlayerAsync(message, Game.Host.Character);
+                }
+
+                return false;
+            }
+            else
+            {
+                return true;
+            }
         }
 
         private async ValueTask HandleStartMeeting(byte targetId)

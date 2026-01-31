@@ -1,3 +1,4 @@
+using System;
 using Impostor.Api.Events.Player;
 using Impostor.Api.Games;
 using Impostor.Api.Innersloth;
@@ -17,7 +18,25 @@ namespace Impostor.Server.Events.Player
             Victim = victim;
             Result = result;
 
-            GameRecorderMain.KillRecorder.OnPlayerKilled(Game.Code, PlayerControl.PlayerInfo.CurrentOutfit.Color.ToString(), PlayerControl.PlayerInfo.PlayerName, Victim.PlayerInfo.CurrentOutfit.Color.ToString(), Victim.PlayerInfo.PlayerName);
+            // 记录击杀事件 - 添加空引用检查
+            try
+            {
+                string killerColor = playerControl?.PlayerInfo?.CurrentOutfit?.Color.ToString() ?? "未知颜色";
+                string killerName = playerControl?.PlayerInfo?.PlayerName ?? "未知玩家";
+                string victimColor = victim?.PlayerInfo?.CurrentOutfit?.Color.ToString() ?? "未知颜色";
+                string victimName = victim?.PlayerInfo?.PlayerName ?? "未知玩家";
+
+                GameRecorderMain.KillRecorder.OnPlayerKilled(
+                    Game.Code.ToString(),
+                    killerColor,
+                    killerName,
+                    victimColor,
+                    victimName);
+            }
+            catch (Exception ex)
+            {
+                Program.LogToConsole($"记录击杀事件失败: {ex.Message}", ConsoleColor.Yellow);
+            }
         }
 
         public IGame Game { get; }

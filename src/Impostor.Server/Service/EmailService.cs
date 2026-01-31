@@ -11,15 +11,12 @@ namespace Impostor.Server.Service
     public class EmailService
     {
         private readonly ILogger<EmailService> _logger;
-        private readonly EmailConfig _emailConfig;
         private readonly HostInfoConfig _hostInfoConfig;
         private readonly IpLocationService _ipLocationService;
 
-        public EmailService(ILogger<EmailService> logger, IOptions<EmailConfig> emailConfig,
-                          IOptions<HostInfoConfig> hostInfoConfig, IpLocationService ipLocationService)
+        public EmailService(ILogger<EmailService> logger, IOptions<HostInfoConfig> hostInfoConfig, IpLocationService ipLocationService)
         {
             _logger = logger;
-            _emailConfig = emailConfig.Value;
             _hostInfoConfig = hostInfoConfig.Value;
             _ipLocationService = ipLocationService;
         }
@@ -37,31 +34,31 @@ namespace Impostor.Server.Service
 
             try
             {
-                // 获取举报者和被举报者的地理位置
-                var reporterLocation = "未知";
-                var targetLocation = "未知";
+                // Get the geographical location of the reporter and the reported player
+                var reporterLocation = "Unknown";
+                var targetLocation = "Unknown";
 
-                if (!string.IsNullOrEmpty(reporterIp) && reporterIp != "未知")
+                if (!string.IsNullOrEmpty(reporterIp) && reporterIp != "Unknown")
                 {
                     reporterLocation = await _ipLocationService.GetLocationAsync(reporterIp);
                 }
 
-                if (!string.IsNullOrEmpty(targetIp) && targetIp != "未知")
+                if (!string.IsNullOrEmpty(targetIp) && targetIp != "Unknown")
                 {
                     targetLocation = await _ipLocationService.GetLocationAsync(targetIp);
                 }
 
-                using var smtpClient = new SmtpClient(_emailConfig.SmtpHost)
+                using var smtpClient = new SmtpClient(_hostInfoConfig.SmtpHost)
                 {
-                    Port = _emailConfig.SmtpPort,
-                    Credentials = new NetworkCredential(_emailConfig.Username, _emailConfig.Password),
+                    Port = _hostInfoConfig.SmtpPort,
+                    Credentials = new NetworkCredential(_hostInfoConfig.Username, _hostInfoConfig.Password),
                     EnableSsl = true,
                 };
 
                 var mailMessage = new MailMessage
                 {
-                    From = new MailAddress(_emailConfig.FromEmail, "NImpostor Server"),
-                    Subject = $"🚨 玩家举报通知 - 游戏 {gameCode}",
+                    From = new MailAddress(_hostInfoConfig.FromEmail, "NImpostor Server"),
+                    Subject = $"🚨 Player Report Notification - Game {gameCode}",
                     Body = GenerateEmailBody(reporterName, reporterIp, reporterId, reporterFriendCode,
                                            reporterLocation, targetPlayerId, targetPlayerName, targetIp,
                                            targetFriendCode, targetLocation, reason, gameCode, gameName,
@@ -87,11 +84,11 @@ namespace Impostor.Server.Service
         {
             return $@"
 <!DOCTYPE html>
-<html lang='zh-CN'>
+<html lang='en'>
 <head>
     <meta charset='UTF-8'>
     <meta name='viewport' content='width=device-width, initial-scale=1.0'>
-    <title>玩家举报通知</title>
+    <title>Player Report Notification</title>
     <style>
         body {{
             font-family: 'Microsoft YaHei', Arial, sans-serif;
@@ -207,46 +204,46 @@ namespace Impostor.Server.Service
 <body>
     <div class='container'>
         <div class='header'>
-            <h1>🚨 玩家举报通知</h1>
-            <p>您的服务器收到了新的玩家举报</p>
+            <h1>🚨 Player Report Notification</h1>
+            <p>Your server has received a new player report</p>
         </div>
         
         <div class='content'>
             <div class='info-card'>
-                <h3 class='section-title'>📋 举报基本信息</h3>
-                <p><span class='label'>举报者:</span> <span class='value'>{reporterName} [ID: {reporterId}]</span></p>
-                <p><span class='label'>好友代码:</span> <span class='friend-code'>{reporterFriendCode ?? "未知"}</span></p>
-                <p><span class='label'>举报者IP:</span> <span class='ip-address'>{reporterIp}</span></p>
-                <p><span class='label'>地理位置:</span> <span class='location'>{reporterLocation}</span></p>
+                <h3 class='section-title'>📋 Basic Report Information</h3>
+                <p><span class='label'>Reporter:</span> <span class='value'>{reporterName} [ID: {reporterId}]</span></p>
+                <p><span class='label'>Friend Code:</span> <span class='friend-code'>{reporterFriendCode ?? "Unknown"}</span></p>
+                <p><span class='label'>Reporter IP:</span> <span class='ip-address'>{reporterIp}</span></p>
+                <p><span class='label'>Location:</span> <span class='location'>{reporterLocation}</span></p>
                 
-                <p style='margin-top: 15px;'><span class='label'>被举报玩家:</span> <span class='value urgent'>{targetPlayerName} [ID: {targetPlayerId}]</span></p>
-                <p><span class='label'>好友代码:</span> <span class='friend-code'>{targetFriendCode ?? "未知"}</span></p>
-                <p><span class='label'>被举报者IP:</span> <span class='ip-address'>{targetIp}</span></p>
-                <p><span class='label'>地理位置:</span> <span class='location'>{targetLocation}</span></p>
+                <p style='margin-top: 15px;'><span class='label'>Reported Player:</span> <span class='value urgent'>{targetPlayerName} [ID: {targetPlayerId}]</span></p>
+                <p><span class='label'>Friend Code:</span> <span class='friend-code'>{targetFriendCode ?? "Unknown"}</span></p>
+                <p><span class='label'>Reported Player IP:</span> <span class='ip-address'>{targetIp}</span></p>
+                <p><span class='label'>Location:</span> <span class='location'>{targetLocation}</span></p>
             </div>
 
             <div class='report-card'>
-                <h3 class='section-title'>⚡ 举报详情</h3>
-                <p><span class='label'>举报原因:</span> <span class='value urgent'>{reason}</span></p>
-                <p><span class='label'>游戏代码:</span> <span class='value'>{gameCode}</span></p>
-                <p><span class='label'>游戏名称:</span> <span class='value'>{gameName}</span></p>
+                <h3 class='section-title'>⚡ Report Details</h3>
+                <p><span class='label'>Reason:</span> <span class='value urgent'>{reason}</span></p>
+                <p><span class='label'>Game Code:</span> <span class='value'>{gameCode}</span></p>
+                <p><span class='label'>Game Name:</span> <span class='value'>{gameName}</span></p>
             </div>
 
             <div class='detail-card'>
-                <h3 class='section-title'>🎮 游戏环境信息</h3>
-                <p><span class='label'>房主:</span> <span class='value'>{hostName}</span></p>
-                <p><span class='label'>玩家人数:</span> <span class='value'>{playerCount}/10</span></p>
-                <p><span class='label'>平台:</span> <span class='value'>{platform}</span></p>
+                <h3 class='section-title'>🎮 Game Environment Information</h3>
+                <p><span class='label'>Host:</span> <span class='value'>{hostName}</span></p>
+                <p><span class='label'>Player Count:</span> <span class='value'>{playerCount}/10</span></p>
+                <p><span class='label'>Platform:</span> <span class='value'>{platform}</span></p>
             </div>
 
             <div class='timestamp'>
-                举报时间: {DateTime.Now:yyyy年MM月dd日 HH:mm:ss}
+                Report Time: {DateTime.Now:yyyy-MM-dd HH:mm:ss}
             </div>
         </div>
 
         <div class='footer'>
-            <p>此邮件由 NImpostor 服务器自动发送</p>
-            <p>请及时处理此举报以确保游戏环境的公平性</p>
+            <p>This email was automatically sent by the NImpostor Server</p>
+            <p>Please handle this report promptly to ensure fairness in the game environment</p>
         </div>
     </div>
 </body>
@@ -262,16 +259,16 @@ namespace Impostor.Server.Service
 
             try
             {
-                using var smtpClient = new SmtpClient(_emailConfig.SmtpHost)
+                using var smtpClient = new SmtpClient(_hostInfoConfig.SmtpHost)
                 {
-                    Port = _emailConfig.SmtpPort,
-                    Credentials = new NetworkCredential(_emailConfig.Username, _emailConfig.Password),
+                    Port = _hostInfoConfig.SmtpPort,
+                    Credentials = new NetworkCredential(_hostInfoConfig.Username, _hostInfoConfig.Password),
                     EnableSsl = true,
                 };
 
                 var mailMessage = new MailMessage
                 {
-                    From = new MailAddress(_emailConfig.FromEmail, "NImpostor Server"),
+                    From = new MailAddress(_hostInfoConfig.FromEmail, "NImpostor Server"),
                     Subject = subject,
                     Body = body,
                     IsBodyHtml = true
@@ -287,19 +284,5 @@ namespace Impostor.Server.Service
                 _logger.LogError(ex, "Failed to send shutdown warning email");
             }
         }
-    }
-
-    public class EmailConfig
-    {
-        public string SmtpHost { get; set; } = "smtp.qq.com";
-
-        public int SmtpPort { get; set; } = 587;
-
-        public string Username { get; set; } = "1767265134@qq.com";
-
-        public string Password { get; set; } = "ycmrhhhraxsvfccb";
-
-        public string FromEmail { get; set; } = "1767265134@qq.com";
-
     }
 }

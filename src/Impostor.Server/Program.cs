@@ -32,6 +32,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.ObjectPool;
 using Serilog;
 using Serilog.Events;
+using static Impostor.Server.Http.AdminController;
 
 namespace Impostor.Server
 {

@@ -56,7 +56,8 @@ namespace Impostor.Server.Net
 
             if (Player != null && Player.IsHost)
             {
-                var isHostCheatingAllowed = _antiCheatConfig.AllowCheatingHosts switch {
+                var isHostCheatingAllowed = _antiCheatConfig.AllowCheatingHosts switch
+                {
                     CheatingHostMode.Always => true,
                     CheatingHostMode.IfRequested => GameVersion.HasDisableServerAuthorityFlag,
                     CheatingHostMode.Never => false,
@@ -109,11 +110,12 @@ namespace Impostor.Server.Net
                 await player.Game.HandleRemovePlayer(Id, DisconnectReason.Hacking);
             }
 
-            var disconnectMessage =
-                $"""
-                 You have been caught cheating and were {(_antiCheatConfig.BanIpFromGame ? "banned" : "kicked")} from the lobby.
-                 For questions, contact your server admin and share the following code: {supportCode}.
-                 """;
+            var disconnectMessageTemplate = _antiCheatConfig.BanIpFromGame ?
+                DisconnectMessages.CheatingBanned :
+                DisconnectMessages.CheatingKicked;
+            var disconnectMessage = string.Format(
+                TranslateService.GetTranslateString(Language, disconnectMessageTemplate),
+                supportCode);
 
             await DisconnectAsync(DisconnectReason.Custom, disconnectMessage);
 
@@ -138,7 +140,8 @@ namespace Impostor.Server.Net
 
                     if (game == null)
                     {
-                        await DisconnectAsync(DisconnectReason.GameNotFound);
+                        await DisconnectAsync(DisconnectReason.GameNotFound,
+                            TranslateService.GetTranslateString(Language, DisconnectMessages.GameNotFound));
                         return;
                     }
 
@@ -159,7 +162,8 @@ namespace Impostor.Server.Net
                     var game = _gameManager.Find(gameCode);
                     if (game == null)
                     {
-                        await DisconnectAsync(DisconnectReason.GameNotFound);
+                        await DisconnectAsync(DisconnectReason.GameNotFound,
+                            TranslateService.GetTranslateString(Language, DisconnectMessages.GameNotFound));
                         return;
                     }
 
@@ -170,34 +174,43 @@ namespace Impostor.Server.Net
                         case GameJoinError.None:
                             break;
                         case GameJoinError.InvalidClient:
-                            await DisconnectAsync(DisconnectReason.Custom, "Client is in an invalid state.");
+                            await DisconnectAsync(DisconnectReason.Custom,
+                                TranslateService.GetTranslateString(Language, DisconnectMessages.ClientInvalidState));
                             break;
                         case GameJoinError.Banned:
-                            await DisconnectAsync(DisconnectReason.Banned);
+                            await DisconnectAsync(DisconnectReason.Banned,
+                                TranslateService.GetTranslateString(Language, DisconnectMessages.Banned));
                             break;
                         case GameJoinError.GameFull:
-                            await DisconnectAsync(DisconnectReason.GameFull);
+                            await DisconnectAsync(DisconnectReason.GameFull,
+                                TranslateService.GetTranslateString(Language, DisconnectMessages.GameFull));
                             break;
                         case GameJoinError.InvalidLimbo:
-                            await DisconnectAsync(DisconnectReason.Custom, "Invalid limbo state while joining.");
+                            await DisconnectAsync(DisconnectReason.Custom,
+                                TranslateService.GetTranslateString(Language, DisconnectMessages.InvalidLimboState));
                             break;
                         case GameJoinError.GameStarted:
-                            await DisconnectAsync(DisconnectReason.GameStarted);
+                            await DisconnectAsync(DisconnectReason.GameStarted,
+                                TranslateService.GetTranslateString(Language, DisconnectMessages.GameStarted));
                             break;
                         case GameJoinError.GameDestroyed:
-                            await DisconnectAsync(DisconnectReason.Custom, DisconnectMessages.Destroyed);
+                            await DisconnectAsync(DisconnectReason.Custom,
+                                TranslateService.GetTranslateString(Language, DisconnectMessages.Destroyed));
                             break;
                         case GameJoinError.ClientOutdated:
-                            await DisconnectAsync(DisconnectReason.Custom, DisconnectMessages.ClientOutdated);
+                            await DisconnectAsync(DisconnectReason.Custom,
+                                TranslateService.GetTranslateString(Language, DisconnectMessages.ClientOutdated));
                             break;
                         case GameJoinError.ClientTooNew:
-                            await DisconnectAsync(DisconnectReason.Custom, DisconnectMessages.ClientTooNew);
+                            await DisconnectAsync(DisconnectReason.Custom,
+                                TranslateService.GetTranslateString(Language, DisconnectMessages.ClientTooNew));
                             break;
                         case GameJoinError.Custom:
                             await DisconnectAsync(DisconnectReason.Custom, result.Message);
                             break;
                         default:
-                            await DisconnectAsync(DisconnectReason.Custom, "Unknown error.");
+                            await DisconnectAsync(DisconnectReason.Custom,
+                                TranslateService.GetTranslateString(Language, DisconnectMessages.UnknownError));
                             break;
                     }
 
@@ -325,7 +338,8 @@ namespace Impostor.Server.Net
 
                 case MessageFlags.GetGameListV2:
                 {
-                    await DisconnectAsync(DisconnectReason.Custom, DisconnectMessages.UdpMatchmakingUnsupported);
+                    await DisconnectAsync(DisconnectReason.Custom,
+                        TranslateService.GetTranslateString(Language, DisconnectMessages.UdpMatchmakingUnsupported));
                     return;
                 }
 
@@ -339,7 +353,7 @@ namespace Impostor.Server.Net
                     var targetPlayerId = reader.ReadPackedInt32();
                     var reason = (ReportReasons)reader.ReadByte();
 
-                    // 获取IP地址
+                    // Get IP addresses
                     var reporterIp = Connection?.EndPoint?.Address?.ToString() ?? "Unknown";
                     var targetIp = "Unknown";
                     var targetFriendCode = "Unknown";
@@ -355,7 +369,7 @@ namespace Impostor.Server.Net
                         platform = targetPlayer.Client.PlatformSpecificData?.PlatformName ?? "Unknown";
                     }
 
-                    // 记录举报日志
+                    // Log report
                     _logger.LogWarning(
                         "PLAYER REPORT - Reporter: {ReporterName}[{ReporterIp}](ID: {ReporterId}, Friend Code: {ReporterFriendCode}), " +
                         "Target: {TargetPlayerName}[{TargetIp}](ID: {TargetPlayerId}, Friend Code: {TargetFriendCode}), Reason: {Reason}, " +
@@ -389,7 +403,7 @@ namespace Impostor.Server.Net
                         );
                     }
 
-                    // 发送邮件通知（不等待，异步处理）
+                    // Send email notification (asynchronous)
                     _ = Task.Run(async () =>
                     {
                         try
@@ -413,7 +427,7 @@ namespace Impostor.Server.Net
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogError(ex, "发送举报邮件时发生错误");
+                            _logger.LogError(ex, "Error sending report email");
                         }
                     });
 

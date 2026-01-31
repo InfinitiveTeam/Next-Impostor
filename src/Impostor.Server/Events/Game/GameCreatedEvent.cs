@@ -1,6 +1,7 @@
-﻿using Impostor.Api.Events;
+using Impostor.Api.Events;
 using Impostor.Api.Games;
 using Impostor.Api.Net;
+using Impostor.Server.GameRecorder;
 
 namespace Impostor.Server.Events
 {
@@ -10,6 +11,9 @@ namespace Impostor.Server.Events
         {
             Game = game;
             Host = host;
+
+            var hostName = host?.Name ?? "未知";
+            GameRecorderMain.GameManagementRecorder.OnGameCreated(game.Code.ToString(), hostName);
         }
 
         public IGame Game { get; }

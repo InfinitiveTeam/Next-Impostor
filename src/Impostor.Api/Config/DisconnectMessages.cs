@@ -2,33 +2,32 @@ namespace Impostor.Api.Config
 {
     public static class DisconnectMessages
     {
-        public const string Error = "发生内部服务器错误,请联系管理/开发人员";
-
-        public const string ClientOutdated = "请更新游戏以加入该大厅";
-
-        public const string ClientTooNew = "您的游戏版本对此大厅来说过新" +
-                                           "如需加入该大厅，请降级您的客户端版本";
-
-        public const string Destroyed = "您尝试加入的游戏正在被销毁" +
-                                        "请创建新游戏";
-
-        public const string UsernameLength = "用户名过长，请缩短用户名";
-
-        public const string UsernameIllegalCharacters = "用户名包含非法字符，请移除这些字符";
-
-        public const string VersionClientTooOld = "请更新游戏以连接此服务器";
-
-        public const string VersionServerTooOld = "Error: 不支持的版本 [1]";
-
-        public const string VersionUnsupported = "Error: 不支持的版本 [2]";
+        public const string Error = "An internal server error occurred, please contact an administrator/developer";
+        public const string ClientOutdated = "Please update your game to join this lobby";
+        public const string ClientTooNew = "Your game version is too new for this lobby. If you want to join this lobby, please downgrade your client version";
+        public const string Destroyed = "The game you tried to join is being destroyed. Please create a new game";
+        public const string UsernameLength = "Username is too long, please shorten it";
+        public const string UsernameIllegalCharacters = "Username contains illegal characters, please remove them";
+        public const string VersionClientTooOld = "Please update your game to connect to this server";
+        public const string VersionServerTooOld = "Error: Unsupported version [1]";
+        public const string VersionUnsupported = "Error: Unsupported version [2]";
 
         private const string UpgradingDocsLink = "https://github.com/Impostor/Impostor/blob/master/docs/Upgrading.md";
-
         public const string UdpMatchmakingUnsupported = $"""
-                                                 很抱歉，UDP 匹配已不再受支持。
-                                                 请参阅<link={UpgradingDocsLink}#impostor-190>Impostor 文档</link>了解如何迁移至 HTTP 匹配
+                                                  Sorry, UDP matchmaking is no longer supported.
+                                                  Please refer to <link={UpgradingDocsLink}#impostor-190>Impostor documentation</link> for how to migrate to HTTP matchmaking
                                                  """;
 
-        public const string HostAuthorityUnsupported = "您的客户端请求主机权限[+25协议]，但此 NImpostor 服务器未启用该功能。";
+        public const string HostAuthorityUnsupported = "Your client requested host authority [+25 protocol], but this NImpostor server does not have this feature enabled.";
+
+        public const string ClientInvalidState = "Client is in an invalid state.";
+        public const string InvalidLimboState = "Invalid limbo state while joining.";
+        public const string UnknownError = "Unknown error.";
+        public const string CheatingKicked = "You have been caught cheating and were kicked from the lobby. For questions, contact your server admin and share the following code: {0}.";
+        public const string CheatingBanned = "You have been caught cheating and were banned from the lobby. For questions, contact your server admin and share the following code: {0}.";
+        public const string GameNotFound = "Game not found.";
+        public const string GameFull = "Game is full.";
+        public const string GameStarted = "Game has already started.";
+        public const string Banned = "You are banned from this game.";
     }
 }
