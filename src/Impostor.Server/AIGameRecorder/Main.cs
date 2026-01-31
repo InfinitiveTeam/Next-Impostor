@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
@@ -104,6 +105,97 @@ namespace Impostor.Server.GameRecorder
         private static readonly ConcurrentDictionary<string, RoomRecorder> _roomRecorders =
             new ConcurrentDictionary<string, RoomRecorder>();
 
+        // 添加静态配置引用
+        private static HostInfoConfig _hostInfoConfig;
+        private static bool _configInitialized = false;
+
+        // 配置初始化方法（可以从插件启动时调用）
+        public static void Initialize(IOptions<HostInfoConfig> hostInfoConfig = null)
+        {
+            try
+            {
+                if (hostInfoConfig != null)
+                {
+                    _hostInfoConfig = hostInfoConfig.Value;
+                    _configInitialized = true;
+                    Program.LogToConsole("GameRecorderMain配置已通过依赖注入初始化", ConsoleColor.Green);
+                    return;
+                }
+
+                // 尝试从环境变量获取
+                var apiKey = Environment.GetEnvironmentVariable("DEEPSEEK_API_KEY");
+                if (!string.IsNullOrEmpty(apiKey))
+                {
+                    _hostInfoConfig = new HostInfoConfig { DeepSeekAPIKey = apiKey };
+                    _configInitialized = true;
+                    Program.LogToConsole("从环境变量加载DeepSeek API Key", ConsoleColor.Yellow);
+                    return;
+                }
+
+                // 尝试从配置文件读取
+                try
+                {
+                    var configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
+                    if (File.Exists(configPath))
+                    {
+                        var configJson = File.ReadAllText(configPath);
+                        using var doc = JsonDocument.Parse(configJson);
+                        var root = doc.RootElement;
+
+                        // 尝试不同的配置路径
+                        if (root.TryGetProperty("DeepSeek", out var deepSeekSection) &&
+                            deepSeekSection.TryGetProperty("APIKey", out var apiKeyElement))
+                        {
+                            _hostInfoConfig = new HostInfoConfig { DeepSeekAPIKey = apiKeyElement.GetString() };
+                        }
+                        else if (root.TryGetProperty("DeepSeekAPIKey", out var apiKeyElement2))
+                        {
+                            _hostInfoConfig = new HostInfoConfig { DeepSeekAPIKey = apiKeyElement2.GetString() };
+                        }
+                        else if (root.TryGetProperty("HostInfo", out var hostInfoSection) &&
+                                 hostInfoSection.TryGetProperty("DeepSeekAPIKey", out var apiKeyElement3))
+                        {
+                            _hostInfoConfig = new HostInfoConfig { DeepSeekAPIKey = apiKeyElement3.GetString() };
+                        }
+
+                        if (_hostInfoConfig != null && !string.IsNullOrEmpty(_hostInfoConfig.DeepSeekAPIKey))
+                        {
+                            _configInitialized = true;
+                            Program.LogToConsole("从配置文件加载DeepSeek API Key", ConsoleColor.Yellow);
+                            return;
+                        }
+                    }
+                }
+                catch (Exception configEx)
+                {
+                    Program.LogToConsole($"配置文件读取失败: {configEx.Message}", ConsoleColor.Yellow);
+                }
+
+                // 如果都没有找到，创建空的配置
+                _hostInfoConfig = new HostInfoConfig { DeepSeekAPIKey = "" };
+                Program.LogToConsole("未找到DeepSeek API Key配置，AI功能将不可用", ConsoleColor.Red);
+                _configInitialized = false;
+            }
+            catch (Exception ex)
+            {
+                Program.LogToConsole($"GameRecorderMain初始化失败: {ex.Message}", ConsoleColor.Red);
+                _hostInfoConfig = new HostInfoConfig { DeepSeekAPIKey = "" };
+                _configInitialized = false;
+            }
+        }
+
+        // 检查配置是否已初始化
+        private static bool EnsureConfigInitialized()
+        {
+            if (!_configInitialized)
+            {
+                Program.LogToConsole("尝试初始化GameRecorderMain配置...", ConsoleColor.Yellow);
+                Initialize();
+            }
+
+            return _configInitialized && _hostInfoConfig != null && !string.IsNullOrEmpty(_hostInfoConfig.DeepSeekAPIKey);
+        }
+
         public static void CleanupExpiredRecorders()
         {
             var expiredRooms = new List<string>();
@@ -161,12 +253,8 @@ namespace Impostor.Server.GameRecorder
         public class AIManager
         {
             private static readonly HttpClient client = new HttpClient();
-            private static HostInfoConfig _hostInfoConfig;
 
-            public AIManager(IOptions<HostInfoConfig> hostInfoConfig)
-            {
-                _hostInfoConfig = hostInfoConfig.Value;
-            }
+            // 删除原来的_hostInfoConfig字段，现在从GameRecorderMain获取
 
             private static void SafeRecordAction(string roomCode, Action<string> recordAction, string actionDescription)
             {
@@ -186,20 +274,22 @@ namespace Impostor.Server.GameRecorder
                 try
                 {
                     // 添加配置检查
-                    if (_hostInfoConfig == null)
+                    if (!EnsureConfigInitialized())
                     {
                         Program.LogToConsole("AIManager配置未初始化", ConsoleColor.Red);
-                        return "AI分析失败: 配置未初始化";
+                        return "AI分析失败: 配置未初始化。请设置DEEPSEEK_API_KEY环境变量或在config.json中配置DeepSeek API Key";
                     }
 
-                    if (string.IsNullOrEmpty(_hostInfoConfig.DeepSeekAPIKey))
+                    string apiKey = _hostInfoConfig.DeepSeekAPIKey;
+
+                    if (string.IsNullOrEmpty(apiKey))
                     {
                         Program.LogToConsole("DeepSeek API Key未设置", ConsoleColor.Red);
-                        return "AI分析失败: API Key未设置";
+                        return "AI分析失败: API Key未设置。请设置DEEPSEEK_API_KEY环境变量或在config.json中配置DeepSeek API Key";
                     }
 
                     client.DefaultRequestHeaders.Remove("Authorization");
-                    client.DefaultRequestHeaders.Add("Authorization", $"Bearer {_hostInfoConfig.DeepSeekAPIKey}");
+                    client.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
 
                     var requestData = new
                     {
@@ -230,7 +320,8 @@ namespace Impostor.Server.GameRecorder
                     {
                         Program.LogToConsole($"DeepSeek API错误: {response.StatusCode}", ConsoleColor.Red);
                         var errorContent = await response.Content.ReadAsStringAsync();
-                        Program.LogToConsole($"错误详情: {errorContent.Substring(0, Math.Min(200, errorContent.Length))}", ConsoleColor.Red);
+                        var errorPreview = errorContent.Length > 200 ? errorContent.Substring(0, 200) + "..." : errorContent;
+                        Program.LogToConsole($"错误详情: {errorPreview}", ConsoleColor.Red);
                         return $"AI分析错误: {response.StatusCode}";
                     }
 
@@ -251,6 +342,13 @@ namespace Impostor.Server.GameRecorder
                                 {
                                     var result = contentElement.GetString();
                                     Program.LogToConsole($"AI分析完成，结果长度: {result?.Length ?? 0} 字符", ConsoleColor.Green);
+
+                                    // 显示结果预览
+                                    if (!string.IsNullOrEmpty(result) && result.Length > 50)
+                                    {
+                                        Program.LogToConsole($"结果预览: {result.Substring(0, Math.Min(50, result.Length))}...", ConsoleColor.Gray);
+                                    }
+
                                     return result ?? "AI返回了空结果";
                                 }
                             }
@@ -271,7 +369,7 @@ namespace Impostor.Server.GameRecorder
                 }
                 catch (Exception ex)
                 {
-                    Program.LogToConsole($"AI分析异常: {ex.Message}\n{ex.StackTrace}", ConsoleColor.Red);
+                    Program.LogToConsole($"AI分析异常: {ex.Message}", ConsoleColor.Red);
                     return $"AI分析异常: {ex.Message}";
                 }
             }
@@ -593,9 +691,9 @@ namespace Impostor.Server.GameRecorder
                 }
             }
         }
-        
+
         // 5. 游戏选项接口
-            public static class AllOptionsRecorder
+        public static class AllOptionsRecorder
         {
             public static NanoMessage Message { get; set; }
 
