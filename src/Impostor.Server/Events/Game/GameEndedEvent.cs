@@ -13,7 +13,17 @@ namespace Impostor.Server.Events
             Game = game;
             GameOverReason = gameOverReason;
 
-            GameRecorderMain.GameStateRecorder.OnGameEnded(Game.Code);
+            // 修复：将IGame转换为具体的Game类型
+            var serverGame = game as Impostor.Server.Net.State.Game;
+            if (serverGame != null)
+            {
+                GameRecorderMain.GameStateRecorder.OnGameEnded(Game.Code.ToString(), serverGame);
+            }
+            else
+            {
+                // 如果无法转换，至少传递房间代码
+                GameRecorderMain.GameStateRecorder.OnGameEnded(Game.Code.ToString(), null);
+            }
         }
 
         public IGame Game { get; }

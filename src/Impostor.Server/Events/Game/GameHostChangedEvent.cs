@@ -1,6 +1,7 @@
-﻿using Impostor.Api.Events;
+using Impostor.Api.Events;
 using Impostor.Api.Games;
 using Impostor.Api.Net;
+using Impostor.Server.GameRecorder;
 
 namespace Impostor.Server.Events
 {
@@ -11,6 +12,14 @@ namespace Impostor.Server.Events
             Game = game;
             PreviousHost = previousHost;
             NewHost = newHost;
+
+            // 记录房主变更事件
+            var prevName = previousHost?.Client?.Name ?? "未知";
+            var newName = newHost?.Client?.Name ?? "未知";
+            GameRecorderMain.GameManagementRecorder.OnGameHostChanged(
+                game.Code.ToString(),
+                prevName,
+                newName);
         }
 
         public IGame Game { get; }

@@ -19,8 +19,8 @@ public class IpLocationService
 
     public async Task<string> GetLocationAsync(string ip)
     {
-        if (string.IsNullOrEmpty(ip) || ip == "未知" || ip == "127.0.0.1")
-            return "本地";
+        if (string.IsNullOrEmpty(ip) || ip == "Unknown" || ip == "127.0.0.1")
+            return "Local";
 
         try
         {
@@ -32,14 +32,14 @@ public class IpLocationService
             if (data.ValueKind == JsonValueKind.Array && data.GetArrayLength() > 0)
             {
                 var location = data[0].GetProperty("location").GetString();
-                return location ?? "未知";
+                return location ?? "Unknown";
             }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "获取IP地理位置失败: {Ip}", ip);
+            _logger.LogWarning(ex, "Failed to get IP location: {Ip}", ip);
         }
 
-        return "未知";
+        return "Unknown";
     }
 }

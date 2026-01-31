@@ -13,7 +13,13 @@
   "HostInfo": {
     "HostEmail": "example@gmail.com",
     "AdminUser": "YourAdminUserName",
-    "AdminPassword": "YourAdminUserPassword"
+    "AdminPassword": "YourAdminUserPassword",
+    "SmtpHost": "smtp.qq.com",
+    "SmtpPort": 587,
+    "Username": "example@gameil.com",
+    "Password": "baidufgggfs",
+    "FromEmail": "example@gameil.com",
+    "DeepSeekAPIKey": "emampleapikey"
   },
   "AntiCheat": {
     "Enabled": true,

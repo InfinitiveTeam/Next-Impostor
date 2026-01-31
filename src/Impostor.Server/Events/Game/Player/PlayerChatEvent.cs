@@ -1,3 +1,4 @@
+using System;
 using System.Reflection;
 using Impostor.Api.Events.Player;
 using Impostor.Api.Games;
@@ -16,7 +17,22 @@ namespace Impostor.Server.Events.Player
             PlayerControl = playerControl;
             Message = message;
 
-            GameRecorderMain.MeetingRecorder.OnPlayerChatted(Game.Code, PlayerControl.PlayerInfo?.CurrentOutfit.Color.ToString(), clientPlayer.Client.Name, message);
+            // 记录玩家聊天事件 - 添加空引用检查
+            try
+            {
+                string colorId = playerControl?.PlayerInfo?.CurrentOutfit?.Color.ToString() ?? "未知颜色";
+                string playerName = clientPlayer?.Client?.Name ?? "未知玩家";
+
+                GameRecorderMain.MeetingRecorder.OnPlayerChatted(
+                    Game.Code.ToString(),
+                    colorId,
+                    playerName,
+                    message);
+            }
+            catch (Exception ex)
+            {
+                Program.LogToConsole($"记录聊天事件失败: {ex.Message}", ConsoleColor.Yellow);
+            }
         }
 
         public IGame Game { get; }
@@ -28,5 +44,7 @@ namespace Impostor.Server.Events.Player
         public string Message { get; }
 
         public bool IsCancelled { get; set; }
+
+        public bool SendToAllPlayers { get; set; } = true;
     }
 }

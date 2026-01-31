@@ -18,7 +18,9 @@ namespace Impostor.Server.Events.Player
             ClientPlayer = clientPlayer;
             PlayerControl = playerControl;
 
-            GameRecorderMain.PlayerDataRecorder.OnPlayerUpdate(Game.Code, new PlayerDataStore(PlayerControl?.PlayerInfo?.PlayerName, PlayerControl.PlayerInfo.IsImpostor, PlayerControl.PlayerInfo.Tasks.ToArray().Length, PlayerControl.PlayerInfo.IsDead));
+            // 记录玩家生成事件
+            string playerName = clientPlayer.Client?.Name ?? "未知玩家";
+            GameRecorderMain.PlayerRecorder.OnPlayerSpawned(game.Code.ToString(), playerName);
         }
 
         public IGame Game { get; }

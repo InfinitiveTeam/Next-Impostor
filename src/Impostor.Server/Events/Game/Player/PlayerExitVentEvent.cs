@@ -16,7 +16,13 @@ namespace Impostor.Server.Events.Player
             PlayerControl = innerPlayerPhysics;
             Vent = vent;
 
-            GameRecorderMain.PlayerDataRecorder.OnPlayerExitVent(Game.Code, PlayerControl.PlayerInfo.PlayerName);
+            // 记录玩家离开通风管事件
+            string playerName = sender.Client?.Name ?? "未知玩家";
+            string ventName = vent?.Name ?? "未知通风管";
+            GameRecorderMain.PlayerRecorder.OnPlayerExitVent(
+                game.Code.ToString(),
+                playerName,
+                ventName);
         }
 
         public IGame Game { get; }

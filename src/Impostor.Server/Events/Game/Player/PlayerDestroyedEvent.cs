@@ -14,7 +14,9 @@ namespace Impostor.Server.Events.Player
             ClientPlayer = clientPlayer;
             PlayerControl = playerControl;
 
-            GameRecorderMain.PlayerDataRecorder.OnPlayerDestroyed(Game.Code, PlayerControl.PlayerInfo.PlayerName);
+            // 记录玩家销毁事件
+            string playerName = clientPlayer.Client?.Name ?? "未知玩家";
+            GameRecorderMain.PlayerRecorder.OnPlayerDestroyed(game.Code.ToString(), playerName);
         }
 
         public IGame Game { get; }

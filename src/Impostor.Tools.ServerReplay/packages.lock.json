@@ -389,6 +389,11 @@
         "resolved": "1.1.0",
         "contentHash": "aOZA3BWfz9RXjpzt0sRJJMjAscAUm3Hoa4UWAfceV9UTYxgwZ1lZt5nO2myFf+/jetYQo4uTP7zS8sJY67BBxg=="
       },
+      "Newtonsoft.Json": {
+        "type": "Transitive",
+        "resolved": "13.0.4",
+        "contentHash": "pdgNNMai3zv51W5aq268sujXUyx7SNdE2bj1wZcWjAQrKMFZV260lbqYop1d2GM67JI1huLRwxo9ZqnfF/lC6A=="
+      },
       "Serilog": {
         "type": "Transitive",
         "resolved": "4.2.0",
@@ -502,11 +507,12 @@
       "impostor.server": {
         "type": "Project",
         "dependencies": {
-          "Impostor.Api": "[5.2.0.1-dev, )",
+          "Impostor.Api": "[5.2.0.2-dev, )",
           "Impostor.Hazel": "[1.0.0, )",
           "Microsoft.Extensions.FileSystemGlobbing": "[8.0.0, )",
           "Microsoft.Extensions.Hosting": "[8.0.0, )",
           "Microsoft.Extensions.ObjectPool": "[8.0.1, )",
+          "Newtonsoft.Json": "[13.0.4, )",
           "Serilog.Extensions.Hosting": "[8.0.0, )",
           "Serilog.Settings.Configuration": "[8.0.0, )",
           "Serilog.Sinks.Console": "[5.0.1, )",

@@ -15,7 +15,13 @@ namespace Impostor.Server.Events.Player
             PlayerControl = playerControl;
             Task = task;
 
-            GameRecorderMain.PlayerDataRecorder.OnPlayerCompletedTask(Game.Code, PlayerControl.PlayerInfo.PlayerName);
+            // 记录玩家完成任务事件
+            string playerName = clientPlayer.Client?.Name ?? "未知玩家";
+            string taskName = task?.Task?.Type.ToString() ?? "未知任务";
+            GameRecorderMain.PlayerRecorder.OnPlayerCompletedTask(
+                game.Code.ToString(),
+                playerName,
+                taskName);
         }
 
         public IGame Game { get; }

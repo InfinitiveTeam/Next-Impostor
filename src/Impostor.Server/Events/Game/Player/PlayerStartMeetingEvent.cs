@@ -16,7 +16,12 @@ namespace Impostor.Server.Events.Player
             PlayerControl = playerControl;
             Body = body;
 
-            GameRecorderMain.PlayerDataRecorder.OnPlayerUpdate(Game.Code, new PlayerDataStore(PlayerControl?.PlayerInfo?.PlayerName, PlayerControl.PlayerInfo.IsImpostor, PlayerControl.PlayerInfo.Tasks.ToArray().Length, PlayerControl.PlayerInfo.IsDead));
+            // 记录玩家发起会议事件
+            string playerName = clientPlayer.Client?.Name ?? "未知玩家";
+            string bodyName = body?.PlayerInfo?.PlayerName ?? "无尸体";
+            var recorder = GameRecorderMain.GetOrCreateRoomRecorder(game.Code.ToString());
+            var message = new NanoMessage(NanoMessageType.Meeting, $"玩家 {playerName} 发起会议，尸体: {bodyName}");
+            recorder.GameData.AppendLine(message.ToString());
         }
 
         public IGame Game { get; }

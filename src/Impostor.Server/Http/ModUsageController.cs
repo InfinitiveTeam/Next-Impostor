@@ -1,8 +1,7 @@
 using System;
 using System.IO;
-using Microsoft.AspNetCore.Mvc;
-using System.Text.Json;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Mvc;
 using Serilog;
 
 namespace Impostor.Server.Http
@@ -18,76 +17,76 @@ namespace Impostor.Server.Http
         {
             _logger = logger;
 
-            // 确保数据目录存在
+            // Ensure data directory exists
             if (!Directory.Exists(dataDirectory))
             {
                 Directory.CreateDirectory(dataDirectory);
-                _logger.Information("创建模组使用数据目录: {DataDirectory}", dataDirectory);
+                _logger.Information("Created mod usage data directory: {DataDirectory}", dataDirectory);
             }
         }
 
         [HttpGet("register")]
         public async Task<IActionResult> RegisterMod(string modName)
         {
-            // 记录请求信息
-            _logger.Information("收到模组注册请求: {ModName}",
+            // Log request information
+            _logger.Information("Received mod registration request: {ModName}",
                 modName);
 
             if (string.IsNullOrEmpty(modName))
             {
-                _logger.Warning("模组注册请求失败: 模组名称为空");
+                _logger.Warning("Mod registration request failed: mod name is empty");
                 return BadRequest("Mod name is required");
             }
 
-            // 清理mod名称，确保它是有效的文件名
+            // Clean mod name to ensure it's a valid filename
             var cleanModName = CleanModName(modName);
             var filePath = Path.Combine(dataDirectory, $"{cleanModName}.txt");
 
             int usageCount = 1;
             bool isNewMod = false;
 
-            // 检查文件是否存在
+            // Check if file exists
             if (System.IO.File.Exists(filePath))
             {
-                // 读取现有计数
+                // Read existing count
                 var content = await System.IO.File.ReadAllTextAsync(filePath);
                 if (int.TryParse(content, out int existingCount))
                 {
                     usageCount = existingCount + 1;
-                    _logger.Debug("模组 {ModName} 已存在，当前使用次数: {ExistingCount}, 更新为: {NewCount}",
+                    _logger.Debug("Mod {ModName} already exists, current usage count: {ExistingCount}, updating to: {NewCount}",
                         modName, existingCount, usageCount);
                 }
                 else
                 {
-                    _logger.Warning("模组 {ModName} 的数据文件格式无效，重置计数", modName);
+                    _logger.Warning("Invalid data file format for mod {ModName}, resetting count", modName);
                 }
             }
             else
             {
                 isNewMod = true;
-                _logger.Information("检测到新模组: {ModName}", modName);
+                _logger.Information("Detected new mod: {ModName}", modName);
             }
 
-            // 写入新的计数
+            // Write new count
             try
             {
                 await System.IO.File.WriteAllTextAsync(filePath, usageCount.ToString());
-                _logger.Debug("成功写入模组 {ModName} 的使用次数: {UsageCount}", modName, usageCount);
+                _logger.Debug("Successfully wrote mod {ModName} usage count: {UsageCount}", modName, usageCount);
             }
             catch (Exception ex)
             {
-                _logger.Error(ex, "写入模组 {ModName} 使用次数时发生错误", modName);
+                _logger.Error(ex, "Error occurred while writing mod {ModName} usage count", modName);
                 return StatusCode(500, "Failed to save mod usage data");
             }
 
-            // 记录成功注册
+            // Log successful registration
             if (isNewMod)
             {
-                _logger.Information("成功注册新模组: {ModName}, 初始使用次数: 1", modName);
+                _logger.Information("Successfully registered new mod: {ModName}, initial usage count: 1", modName);
             }
             else
             {
-                _logger.Information("更新模组 {ModName} 使用次数: {UsageCount}", modName, usageCount);
+                _logger.Information("Updated mod {ModName} usage count: {UsageCount}", modName, usageCount);
             }
 
             return Ok(usageCount.ToString());
@@ -96,42 +95,42 @@ namespace Impostor.Server.Http
         [HttpGet("usage/{modName}")]
         public IActionResult GetModUsage(string modName)
         {
-            _logger.Debug("收到模组使用次数查询请求: {ModName}", modName);
+            _logger.Debug("Received mod usage count query request: {ModName}", modName);
 
             if (string.IsNullOrEmpty(modName))
             {
                 return BadRequest("Mod name is required");
             }
 
-            // 清理mod名称，确保它是有效的文件名
+            // Clean mod name to ensure it's a valid filename
             var cleanModName = CleanModName(modName);
             var filePath = Path.Combine(dataDirectory, $"{cleanModName}.txt");
 
             int usageCount = 0;
 
-            // 检查文件是否存在
+            // Check if file exists
             if (System.IO.File.Exists(filePath))
             {
-                // 读取现有计数
+                // Read existing count
                 var content = System.IO.File.ReadAllText(filePath);
                 if (int.TryParse(content, out int existingCount))
                 {
                     usageCount = existingCount;
-                    _logger.Debug("返回模组 {ModName} 的使用次数: {UsageCount}", modName, usageCount);
+                    _logger.Debug("Returning mod {ModName} usage count: {UsageCount}", modName, usageCount);
                 }
                 else
                 {
-                    _logger.Warning("模组 {ModName} 的数据文件格式无效", modName);
+                    _logger.Warning("Invalid data file format for mod {ModName}", modName);
                     return NotFound($"Invalid data format for mod: {modName}");
                 }
             }
             else
             {
-                _logger.Debug("模组 {ModName} 未找到", modName);
+                _logger.Debug("Mod {ModName} not found", modName);
                 return NotFound($"Mod not found: {modName}");
             }
 
-            // 返回JSON格式的结果
+            // Return result in JSON format
             var result = new
             {
                 modName,
@@ -145,15 +144,15 @@ namespace Impostor.Server.Http
         [HttpGet("stats")]
         public IActionResult GetModStats()
         {
-            _logger.Debug("模组使用次数网页被访问");
+            _logger.Debug("Mod usage statistics page was accessed");
 
-            // 从查询参数获取语言偏好，默认为英文
+            // Get language preference from query parameters, default to English
             var lang = Request.Query.ContainsKey("lang") ? Request.Query["lang"].ToString() : "en";
-            _logger.Debug("请求语言偏好: {Language}", lang);
+            _logger.Debug("Request language preference: {Language}", lang);
 
             if (!Directory.Exists(dataDirectory))
             {
-                _logger.Warning("模组统计数据目录不存在");
+                _logger.Warning("Mod statistics data directory does not exist");
                 return Ok(lang == "zh" ?
                     "<html><body><h1>模组使用统计</h1><p>暂无模组使用数据可用</p></body></html>" :
                     "<html><body><h1>Mod Usage Statistics</h1><p>No mod usage data available</p></body></html>");
@@ -161,10 +160,10 @@ namespace Impostor.Server.Http
 
             var modFiles = Directory.GetFiles(dataDirectory, "*.txt");
 
-            // 构建HTML响应
+            // Build HTML response
             var html = new System.Text.StringBuilder();
 
-            // HTML头部和样式
+            // HTML head and styles
             html.AppendLine("<!DOCTYPE html>");
             html.AppendLine("<html lang=\"" + lang + "\">");
             html.AppendLine("<head>");
@@ -190,16 +189,16 @@ namespace Impostor.Server.Http
             html.AppendLine("<body>");
             html.AppendLine("    <div class=\"container\">");
 
-            // 语言切换器
+            // Language switcher
             html.AppendLine("        <div class=\"language-switcher\">");
             html.AppendLine("            <a href=\"?lang=en\"" + (lang == "en" ? " class=\"active\"" : "") + ">English</a>");
             html.AppendLine("            <a href=\"?lang=zh\"" + (lang == "zh" ? " class=\"active\"" : "") + ">中文</a>");
             html.AppendLine("        </div>");
 
-            // 标题
+            // Title
             html.AppendLine("        <h1>" + (lang == "zh" ? "模组使用统计" : "Mod Usage Statistics") + "</h1>");
 
-            // 统计摘要
+            // Statistics summary
             int totalUses = 0;
             foreach (var file in modFiles)
             {
@@ -213,7 +212,7 @@ namespace Impostor.Server.Http
                 }
                 catch (Exception ex)
                 {
-                    _logger.Error(ex, "读取模组统计文件时出错: {FilePath}", file);
+                    _logger.Error(ex, "Error reading mod statistics file: {FilePath}", file);
                 }
             }
 
@@ -223,7 +222,7 @@ namespace Impostor.Server.Http
                 $"Tracking {modFiles.Length} mods, Total uses: {totalUses}") + "</p>");
             html.AppendLine("        </div>");
 
-            // 表格开始
+            // Table start
             html.AppendLine("        <table>");
             html.AppendLine("            <thead>");
             html.AppendLine("                <tr>");
@@ -233,7 +232,7 @@ namespace Impostor.Server.Http
             html.AppendLine("            </thead>");
             html.AppendLine("            <tbody>");
 
-            // 表格内容
+            // Table content
             foreach (var file in modFiles)
             {
                 try
@@ -247,7 +246,7 @@ namespace Impostor.Server.Http
                 }
                 catch (Exception ex)
                 {
-                    _logger.Error(ex, "读取模组统计文件时出错: {FilePath}", file);
+                    _logger.Error(ex, "Error reading mod statistics file: {FilePath}", file);
                     html.AppendLine("                <tr>");
                     html.AppendLine("                    <td colspan=\"2\" style=\"color: red;\">" +
                         (lang == "zh" ? "读取错误" : "Read Error") + ": " + file + "</td>");
@@ -255,11 +254,11 @@ namespace Impostor.Server.Http
                 }
             }
 
-            // 表格结束
+            // Table end
             html.AppendLine("            </tbody>");
             html.AppendLine("        </table>");
 
-            // API使用示例
+            // API usage example
             html.AppendLine("        <div class=\"api-example\">");
             html.AppendLine("            <h2>" + (lang == "zh" ? "API 使用示例" : "API Usage Example") + "</h2>");
             html.AppendLine("            <p>" + (lang == "zh" ?
@@ -270,7 +269,7 @@ namespace Impostor.Server.Http
                 "示例响应:" : "Example response:") + "</p>");
             html.AppendLine("            <pre><code>{\n  \"modName\": \"TheOtherRoles\",\n  \"usageCount\": 42,\n  \"lastUpdated\": \"2023-06-15 14:30:25\"\n}</code></pre>");
 
-            // 简单HTML示例
+            // Simple HTML example
             html.AppendLine("            <h3>" + (lang == "zh" ? "HTML 集成示例" : "HTML Integration Example") + "</h3>");
             html.AppendLine("            <pre><code>&lt;div id=\"mod-stats\"&gt;&lt;/div&gt;\n&lt;script&gt;\n  fetch('/api/modusage/usage/TheOtherRoles')\n    .then(response => response.json())\n    .then(data => {\n      document.getElementById('mod-stats').innerHTML = \n        `&lt;p&gt;模组 ${data.modName} 已被使用 ${data.usageCount} 次&lt;/p&gt;`;\n    })\n    .catch(error => console.error('Error:', error));\n&lt;/script&gt;</code></pre>");
             html.AppendLine("        </div>");
@@ -284,20 +283,20 @@ namespace Impostor.Server.Http
 
         private string CleanModName(string modName)
         {
-            // 记录原始模组名称
+            // Record original mod name
             var originalName = modName;
 
-            // 移除或替换文件名中的非法字符
+            // Remove or replace invalid characters in filename
             var invalidChars = Path.GetInvalidFileNameChars();
             foreach (var c in invalidChars)
             {
                 modName = modName.Replace(c, '_');
             }
 
-            // 如果名称被修改，记录警告
+            // Log warning if name was modified
             if (originalName != modName)
             {
-                _logger.Warning("模组名称包含非法字符，已清理: {Original} -> {Cleaned}",
+                _logger.Warning("Mod name contained invalid characters, cleaned: {Original} -> {Cleaned}",
                     originalName, modName);
             }
 

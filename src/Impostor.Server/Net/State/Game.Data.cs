@@ -402,7 +402,7 @@ namespace Impostor.Server.Net.State
                     {
                         await _eventManager.CallAsync(new PlayerSpawnedEvent(this, player, control));
 
-                        var filePath = Path.Combine(Directory.GetCurrentDirectory(), "Text", "HelloWord.txt");
+                        var filePath = Path.Combine(Directory.GetCurrentDirectory(), "Text", $"{player.Client.Language}HelloWord.txt");
                         if (File.Exists(filePath))
                         {
                             try

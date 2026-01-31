@@ -14,13 +14,9 @@ namespace Impostor.Server.Events.Player
             ClientPlayer = clientPlayer;
             PlayerControl = playerControl;
 
-            GameRecorderMain.MeetingRecorder.OnPlayerExile(Game.Code, PlayerControl.PlayerInfo.PlayerName,CheckType(PlayerControl));
-        }
-        string CheckType(IInnerPlayerControl PlayerControl)
-        {
-            if (PlayerControl.PlayerInfo.IsImpostor) return "他是伪装者";
-            else if (!PlayerControl.PlayerInfo.IsImpostor) return "他不是伪装者";
-            return "他的身份未知。可能是房主未开启驱逐确认玩家身份";
+            // 记录玩家被放逐事件
+            string playerName = clientPlayer.Client?.Name ?? "未知玩家";
+            GameRecorderMain.PlayerRecorder.OnPlayerExiled(game.Code.ToString(), playerName);
         }
 
         public IGame Game { get; }
