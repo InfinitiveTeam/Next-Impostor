@@ -24,8 +24,6 @@ using Impostor.Server.Net.State;
 using Impostor.Server.Service;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json.Linq;
-using static Impostor.Server.GameRecorder.GameRecorderMain;
 
 namespace Impostor.Server.Net.Inner.Objects
 {
@@ -602,18 +600,6 @@ namespace Impostor.Server.Net.Inner.Objects
 
                     Rpc65StartAppear.Deserialize(reader, out var shouldAnimate);
                     return await HandleStartAppear(sender, shouldAnimate);
-                }
-                case ModdedRpc.GMIARoleAssign:
-                {
-                    if (!await ValidateHost(call, sender) ||
-                        !await ValidateBroadcast(call, sender, target))
-                    {
-                        return false;
-                    }
-
-                    Rpc104GMIARoleAssign.Deserialize(reader,out var playerId, out var roleId);
-                    var player = InnerGameData.GetPlayerById(playerId);
-                    return await HandleGetGMIASetRole(sender,player.PlayerName, roleId);
                 }
 
                 default:
@@ -1232,7 +1218,7 @@ namespace Impostor.Server.Net.Inner.Objects
             {
                 Game.Note = message.Replace("/note ", string.Empty);
                 sender?.Character?.SendChatToPlayerAsync(TranslateService.GetTranslateString(sender.Client.Language, "Note successful"));
-                @event.SendToAllPlayers = true;
+                @event.SendToAllPlayers = false;
             }
 
             await _eventManager.CallAsync(@event);
@@ -1358,16 +1344,6 @@ namespace Impostor.Server.Net.Inner.Objects
             }
 
             return true;
-        }
-        private async ValueTask<bool> HandleGetGMIASetRole(ClientPlayer sender, byte role)
-        {
-            string name = Enum.GetName(typeof(Rpc104GMIARoleAssign.RoleId), role);
-            PlayerDataRecorder.OnPlayerGMIASetRole(Game.Code, sender.Client.Name, name);
-            return true;
-        }
-        public enum ModdedRpc : uint
-        {
-            GMIARoleAssign = 104,
         }
     }
 }
