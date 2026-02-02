@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Impostor.Api.Config;
+using Impostor.Api.Net.Messages.Rpcs;
 using Impostor.Server.Service;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -326,7 +327,7 @@ namespace Impostor.Server.GameRecorder
                         {
                             new {
                                 role = "system",
-                                content = "你是一个AI助手，你需要分析用户提供的Among Us游戏对局信息，给出每个玩家的相应的评分，同时输出用于在Unity游戏里显示的文字(可以使用<color=#……>添加颜色或者<b>加粗等)，不要超过500个字符"
+                                content = "你是一个AI助手，你需要分析用户提供的Among Us游戏对局信息，给出每个玩家的相应的评分，同时输出用于在Unity游戏里显示的文字(可以使用<color=#……>添加颜色或者<b>加粗等)，你仅需输出最终的Unity格式显示结果，如果用户提醒你这是一个模组的职业，请你一定要相信这条职业信息。在输出游戏结算时请注意玩家是否死亡，并且对应好玩家的颜色和名称，不要重复评价玩家。不要超过500个字符"
                             },
                             new { role = "user", content = gameData }
                         },
@@ -760,6 +761,7 @@ namespace Impostor.Server.GameRecorder
             public static NanoMessage Message3 { get; set; }
             public static NanoMessage Message4 { get; set; }
             public static NanoMessage Message5 { get; set; }
+            public static NanoMessage Message6 { get; set; }
             public static void OnPlayerUpdate(string roomCode, PlayerDataStore playerDataStore)
             {
                 var recorder = GetOrCreateRoomRecorder(roomCode);
@@ -794,6 +796,12 @@ namespace Impostor.Server.GameRecorder
                 Message5 = new NanoMessage(NanoMessageType.Common, $"玩家 {playerName} 完成了一个任务");
                 recorder.GameData.AppendLine(Message5.ToString());
                 Program.LogToConsole($"房间 {roomCode} 玩家完成任务已记录", ConsoleColor.Gray);
+            }
+            public static void OnPlayerGMIASetRole(string roomCode, string playerName , string role)
+            {
+                var recorder = GetOrCreateRoomRecorder(roomCode);
+                Message6 = new NanoMessage(NanoMessageType.Common, $"玩家 {playerName} 的职业是 {role}，请注意，本次对局为TheOtherRolesGMIA对局，职业不仅限于原版游戏。");
+                recorder.GameData.AppendLine(Message6.ToString());
             }
         }
 

@@ -6,7 +6,7 @@ namespace Impostor.Server.Net.Inner.Objects
 {
     internal partial class InnerGameData : IInnerGameData
     {
-        private readonly ConcurrentDictionary<byte, InnerPlayerInfo> _allPlayers = new();
+        private static ConcurrentDictionary<byte, InnerPlayerInfo> _allPlayers = new();
         private readonly ConcurrentDictionary<int, InnerPlayerInfo> _allPlayersByClientId = new();
 
         public int PlayerCount => _allPlayers.Count;
@@ -15,7 +15,7 @@ namespace Impostor.Server.Net.Inner.Objects
 
         internal IReadOnlyDictionary<int, InnerPlayerInfo> PlayersByClientId => _allPlayersByClientId;
 
-        public InnerPlayerInfo? GetPlayerById(byte id)
+        public static InnerPlayerInfo? GetPlayerById(byte id)
         {
             if (id == byte.MaxValue)
             {
