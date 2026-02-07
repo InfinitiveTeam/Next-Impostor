@@ -597,7 +597,7 @@ public sealed class HelloController : ControllerBase
                 <div class=""online-players"">
                     <div class=""player-region"">
                         <div class=""region-name"" data-i18n=""current-games"">当前在线游戏数量</div>
-                        <div class=""player-count"">{allGames.Count}</div>
+                        <div class=""player-count"">{{allroom.count}}</div>
                     </div>
                 </div>
                 

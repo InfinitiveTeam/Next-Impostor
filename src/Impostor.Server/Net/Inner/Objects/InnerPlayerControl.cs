@@ -297,10 +297,9 @@ namespace Impostor.Server.Net.Inner.Objects
                         sender?.Character?.SendChatToPlayerAsync("已备注");
                         return false;
                     }
-                    if (sender.IsHost && message.Contains("/sum"))
+                    if (message.Contains("/sum"))
                     {
-                        var recorder = GameRecorderMain.GetRoomRecorder(Game.Code);
-                        sender?.Character?.SendChatToPlayerAsync(recorder.DeepSeekText);
+                        GameRecorderMain.TriggerAIAnalysis(Game.Code);
                         return false;
                     }
                     return await HandleSendChat(sender, message);

@@ -327,7 +327,7 @@ namespace Impostor.Server.GameRecorder
                         {
                             new {
                                 role = "system",
-                                content = "你是一个AI助手，你需要分析用户提供的Among Us游戏对局信息，给出每个玩家的相应的评分，同时输出用于在Unity游戏里显示的文字(可以使用<color=#……>添加颜色或者<b>加粗等)，你仅需输出最终的Unity格式显示结果，如果用户提醒你这是一个模组的职业，请你一定要相信这条职业信息。在输出游戏结算时请注意玩家是否死亡，并且对应好玩家的颜色和名称，不要重复评价玩家。不要超过500个字符"
+                                content = "你是一个AI助手，你需要分析用户提供的Among Us游戏对局信息，给出每个玩家的相应的评分，同时输出用于在Unity游戏里显示的文字(可以使用<color=#……>添加颜色或者<b>加粗等)，你仅需输出最终的Unity格式显示结果，如果用户提醒你这是一个模组的职业，请你一定要相信这条职业信息。在输出游戏结算时请注意玩家是否死亡，在死亡后玩家所说的话非死亡玩家时看不见的，并且对应好玩家的颜色和名称，不要重复评价玩家。只输出玩家的存亡状态不要输出职业。不要超过500个字符"
                             },
                             new { role = "user", content = gameData }
                         },
@@ -723,7 +723,7 @@ namespace Impostor.Server.GameRecorder
                 }
 
                 // 游戏结束时自动发送分析
-                string analysisResult = await AIManager.SendAnalysisToChat(roomCode, game);
+                /*string analysisResult = await AIManager.SendAnalysisToChat(roomCode, game);
 
                 if (!string.IsNullOrEmpty(analysisResult) && analysisResult.Contains("错误"))
                 {
@@ -736,7 +736,7 @@ namespace Impostor.Server.GameRecorder
                 else if (!string.IsNullOrEmpty(analysisResult) && !analysisResult.Contains("错误"))
                 {
                     Program.LogToConsole($"房间 {roomCode} 分析完成，结果已保存到记录器", ConsoleColor.Cyan);
-                }
+                }*/
             }
         }
 
