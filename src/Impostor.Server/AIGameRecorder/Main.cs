@@ -723,7 +723,7 @@ namespace Impostor.Server.GameRecorder
                 }
 
                 // 游戏结束时自动发送分析
-                /*string analysisResult = await AIManager.SendAnalysisToChat(roomCode, game);
+                string analysisResult = await AIManager.SendAnalysisToChat(roomCode, game);
 
                 if (!string.IsNullOrEmpty(analysisResult) && analysisResult.Contains("错误"))
                 {
@@ -736,7 +736,7 @@ namespace Impostor.Server.GameRecorder
                 else if (!string.IsNullOrEmpty(analysisResult) && !analysisResult.Contains("错误"))
                 {
                     Program.LogToConsole($"房间 {roomCode} 分析完成，结果已保存到记录器", ConsoleColor.Cyan);
-                }*/
+                }
             }
         }
 

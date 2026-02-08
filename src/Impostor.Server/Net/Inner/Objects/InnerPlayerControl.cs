@@ -6,6 +6,7 @@ using System.Numerics;
 using System.Threading.Tasks;
 using Impostor.Api;
 using Impostor.Api.Events.Managers;
+using Impostor.Api.Games;
 using Impostor.Api.Innersloth;
 using Impostor.Api.Innersloth.Customization;
 using Impostor.Api.Innersloth.GameOptions;
@@ -299,7 +300,7 @@ namespace Impostor.Server.Net.Inner.Objects
                     }
                     if (message.Contains("/sum"))
                     {
-                        GameRecorderMain.TriggerAIAnalysis(Game.Code);
+                        if(Game.DeepSeekText != string.Empty) sender?.Character?.SendChatToPlayerAsync(Game.DeepSeekText);
                         return false;
                     }
                     if (message.Contains("/cmd"))
@@ -1223,7 +1224,7 @@ namespace Impostor.Server.Net.Inner.Objects
             }
             if (message.Contains("/sum"))
             {
-                await GameRecorderMain.TriggerAIAnalysis(Game.Code);
+                if(Game.DeepSeekText != string.Empty) sender?.Character?.SendChatToPlayerAsync(Game.DeepSeekText);
                 @event.SendToAllPlayers = false;
             }
             await _eventManager.CallAsync(@event);
