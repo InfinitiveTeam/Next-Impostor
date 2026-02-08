@@ -14,9 +14,12 @@ namespace Impostor.Server.Net.State
     {
         public async ValueTask SendToAllAsync(IMessageWriter writer, LimboStates states = LimboStates.NotLimbo)
         {
-            foreach (var connection in GetConnections(x => x.Limbo.HasFlag(states)))
+            foreach (var connection in GetConnections(x => x.Limbo == states || states == LimboStates.NotLimbo))
             {
-                await connection.SendAsync(writer);
+                if (connection != null && connection.IsConnected)
+                {
+                    await connection.SendAsync(writer);
+                }
             }
         }
 
@@ -125,7 +128,7 @@ namespace Impostor.Server.Net.State
             writer.WritePacked(components.Count);
             foreach (var component in components)
             {
-                writer.WritePacked(obj.NetId);
+                writer.WritePacked(component.NetId); 
                 writer.StartMessage(1);
                 await component.SerializeAsync(writer, true);
                 writer.EndMessage();

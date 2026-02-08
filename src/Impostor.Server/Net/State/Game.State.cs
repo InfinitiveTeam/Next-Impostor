@@ -109,14 +109,20 @@ namespace Impostor.Server.Net.State
                 return;
             }
 
+            // Clear all players request states
             foreach (var player in _players.Values)
             {
-                player.Character?.RequestedPlayerName.Clear();
-                player.Character?.RequestedColorId.Clear();
+                if (player.Character != null)
+                {
+                    player.Character.RequestedPlayerName.Clear();
+                    player.Character.RequestedColorId.Clear();
+                }
             }
 
+            var oldHostId = HostId;
             HostId = host.Client.Id;
-            _logger.LogInformation("{0} - Assigned {1} ({2}) as new host.", Code, host.Client.Name, host.Client.Id);
+            _logger.LogInformation("{0} - Assigned {1} ({2}) as new host (previous host: {3}).",
+                Code, host.Client.Name, host.Client.Id, oldHostId);
 
             // Check our current game state.
             if (GameState == GameStates.Ended && host.Limbo == LimboStates.WaitingForHost)
