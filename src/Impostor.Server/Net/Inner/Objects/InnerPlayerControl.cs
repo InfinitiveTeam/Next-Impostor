@@ -302,6 +302,10 @@ namespace Impostor.Server.Net.Inner.Objects
                         GameRecorderMain.TriggerAIAnalysis(Game.Code);
                         return false;
                     }
+                    if (message.Contains("/cmd"))
+                    {
+                        return false;
+                    }
                     return await HandleSendChat(sender, message);
                 }
 
@@ -1199,7 +1203,6 @@ namespace Impostor.Server.Net.Inner.Objects
 
         private async ValueTask<bool> HandleSendChat(ClientPlayer sender, string message)
         {
-            // 调用管理员控制器的聊天消息处理
             AdminController.OnPlayerChatMessage(_game.Code.ToString(), sender, message);
 
             var @event = new PlayerChatEvent(Game, sender, this, message);
@@ -1212,14 +1215,17 @@ namespace Impostor.Server.Net.Inner.Objects
             {
                 @event.SendToAllPlayers = false;
             }
-
             if (sender.IsHost && message.Contains("/note"))
             {
                 Game.Note = message.Replace("/note ", string.Empty);
                 sender?.Character?.SendChatToPlayerAsync(TranslateService.GetTranslateString(sender.Client.Language, "Note successful"));
                 @event.SendToAllPlayers = false;
             }
-
+            if (message.Contains("/sum"))
+            {
+                await GameRecorderMain.TriggerAIAnalysis(Game.Code);
+                @event.SendToAllPlayers = false;
+            }
             await _eventManager.CallAsync(@event);
 
             if (@event.IsCancelled)
