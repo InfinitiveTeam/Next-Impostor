@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
+using System.Net.Http;
+using System.Net.Http.Json;
 using System.Numerics;
 using System.Threading.Tasks;
 using Impostor.Api;
@@ -305,6 +307,11 @@ namespace Impostor.Server.Net.Inner.Objects
                     }
                     if (message.Contains("/cmd"))
                     {
+                        return false;
+                    }
+                    if (message.StartsWith("/verifyQQ"))
+                    {
+                        await HandleVerifyQQCommand(sender, message);
                         return false;
                     }
                     return await HandleSendChat(sender, message);
@@ -1216,6 +1223,11 @@ namespace Impostor.Server.Net.Inner.Objects
             {
                 @event.SendToAllPlayers = false;
             }
+            if (sender.IsHost && message.Contains("/verifyQQ"))
+            {
+                sender?.Character?.SendChatToPlayerAsync("<color=#FF0000>此八位数字为密钥，请勿泄露给任何人！！！</color>");
+                @event.SendToAllPlayers = false;
+            }
             if (sender.IsHost && message.Contains("/note"))
             {
                 Game.Note = message.Replace("/note ", string.Empty);
@@ -1227,6 +1239,7 @@ namespace Impostor.Server.Net.Inner.Objects
                 if(Game.DeepSeekText != string.Empty) sender?.Character?.SendChatToPlayerAsync(Game.DeepSeekText);
                 @event.SendToAllPlayers = false;
             }
+
             await _eventManager.CallAsync(@event);
 
             if (@event.IsCancelled)
@@ -1246,6 +1259,68 @@ namespace Impostor.Server.Net.Inner.Objects
             {
                 return true;
             }
+        }
+
+        private async ValueTask HandleVerifyQQCommand(ClientPlayer sender, string message)
+        {
+            try
+            {
+                var parts = message.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length < 2)
+                {
+                    await sender.Character.SendChatToPlayerAsync("使用方法: /verifyQQ [QQ号码]");
+                    return;
+                }
+
+                var qqNumber = parts[1];
+                if (!long.TryParse(qqNumber, out _) || qqNumber.Length < 5 || qqNumber.Length > 15)
+                {
+                    await sender.Character.SendChatToPlayerAsync("QQ号码格式不正确");
+                    return;
+                }
+
+                // 获取玩家好友代码
+                var friendCode = GetPlayerFriendCode(sender); // 需要实现这个方法
+
+                // 调用验证API
+                using var httpClient = new HttpClient();
+                var request = new
+                {
+                    QQNumber = qqNumber,
+                    FriendCode = friendCode,
+                    GameCode = Game.Code.ToString()
+                };
+
+                var response = await httpClient.PostAsJsonAsync(
+                    "https://imp.xtreme.net.cn/api/verify/create", request);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    var result = await response.Content.ReadFromJsonAsync<VerifyResponse>();
+                    if (result.Success)
+                    {
+                        await sender.Character.SendChatToPlayerAsync(result.Message);
+                    }
+                    else
+                    {
+                        await sender.Character.SendChatToPlayerAsync($"验证失败: {result.Message}");
+                    }
+                }
+                else
+                {
+                    await sender.Character.SendChatToPlayerAsync("验证服务暂时不可用，请稍后重试");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "处理verifyQQ命令失败");
+                await sender.Character.SendChatToPlayerAsync("系统错误，请稍后重试");
+            }
+        }
+
+        private string GetPlayerFriendCode(ClientPlayer player)
+        {
+            return player.Client.FriendCode;
         }
 
         private async ValueTask HandleStartMeeting(byte targetId)

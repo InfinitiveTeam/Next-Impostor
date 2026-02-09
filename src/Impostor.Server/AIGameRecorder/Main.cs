@@ -130,6 +130,7 @@ namespace Impostor.Server.GameRecorder
     // ============== 主记录器类 ==============
     public static class GameRecorderMain
     {
+        private static bool _endedSend = false;
         private static readonly TimeSpan RecordExpirationTime = TimeSpan.FromHours(1);
 
         // 使用并发字典支持多线程访问
@@ -473,17 +474,18 @@ namespace Impostor.Server.GameRecorder
                             game.SendDeepSeekText = true; // 保持为true，等待玩家进入时发送
 
                             // 尝试发送给当前在线的玩家
-                            var sentCount = await TrySendToCurrentPlayers(game, analysis);
-                            if (sentCount > 0)
-                            {
-                                Program.LogToConsole($"已向 {sentCount} 名在线玩家发送分析结果", ConsoleColor.Cyan);
-                                game.SendDeepSeekText = false; // 已经发送过了
+                            if (_endedSend) {
+                                var sentCount = await TrySendToCurrentPlayers(game, analysis);
+                                if (sentCount > 0)
+                                {
+                                    Program.LogToConsole($"已向 {sentCount} 名在线玩家发送分析结果", ConsoleColor.Cyan);
+                                    game.SendDeepSeekText = false; // 已经发送过了
+                                }
+                                else
+                                {
+                                    Program.LogToConsole($"没有在线玩家可接收分析结果，已保存等待新玩家加入", ConsoleColor.Yellow);
+                                }
                             }
-                            else
-                            {
-                                Program.LogToConsole($"没有在线玩家可接收分析结果，已保存等待新玩家加入", ConsoleColor.Yellow);
-                            }
-
                             return analysis;
                         }
                     }
@@ -564,7 +566,7 @@ namespace Impostor.Server.GameRecorder
                 // 如果正在分析中，发送思考中提示
                 try
                 {
-                    await playerControl.SendChatToPlayerAsync("<color=#ffa500>AI正在分析本局游戏，请稍后=~=</color>");
+                    if(_endedSend) await playerControl.SendChatToPlayerAsync("<color=#ffa500>AI正在分析本局游戏，请稍后=~=</color>");
                     Program.LogToConsole($"向新玩家发送AI思考中提示", ConsoleColor.Yellow);
                 }
                 catch (Exception ex)
@@ -577,7 +579,7 @@ namespace Impostor.Server.GameRecorder
                 // 如果有分析结果，正常发送
                 try
                 {
-                    await playerControl.SendChatToPlayerAsync(game.DeepSeekText);
+                    if (_endedSend) await playerControl.SendChatToPlayerAsync(game.DeepSeekText);
                     Program.LogToConsole($"向新玩家发送已存在的DeepSeek分析结果", ConsoleColor.Cyan);
 
                     if (game.SendDeepSeekText.HasValue && game.SendDeepSeekText.Value)
