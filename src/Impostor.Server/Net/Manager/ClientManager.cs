@@ -208,7 +208,148 @@ namespace Impostor.Server.Net.Manager
 
             await _eventManager.CallAsync(new ClientConnectedEvent(connection, client));
         }
+        private async Task<(bool success, (UserAuthInfo? userInfo, string? productUserId, string? friendCode) authInfo)>
+    TryGetAuthInfoWithRetry(System.Net.IPAddress clientIp, string name, GameVersion clientVersion)
+        {
+            const int maxRetries = 2;
 
+            for (int attempt = 0; attempt <= maxRetries; attempt++)
+            {
+                try
+                {
+                    // 1. 首先尝试通过IP地址获取认证信息
+                    var userInfo = AuthCacheService.GetUserAuthByIp(clientIp);
+                    string? productUserId = null;
+
+                    if (userInfo == null)
+                    {
+                        // 2. 如果IP找不到，尝试推断PUID
+                        productUserId = AuthCacheService.InferPuidFromConnection(clientIp, name, clientVersion);
+                        if (productUserId != null)
+                        {
+                            userInfo = AuthCacheService.GetUserAuthByPuid(productUserId);
+                        }
+                    }
+                    else
+                    {
+                        productUserId = userInfo.ProductUserId;
+                    }
+
+                    // 3. 如果有认证信息，获取FriendCode
+                    if (userInfo != null && !string.IsNullOrEmpty(userInfo.AuthToken))
+                    {
+                        var friendCode = await GetFriendCodeFromBackendWithRetry(userInfo.AuthToken, attempt);
+
+                        if (!string.IsNullOrEmpty(friendCode))
+                        {
+                            return (true, (userInfo, productUserId, friendCode));
+                        }
+
+                        _logger.LogWarning("Attempt {Attempt} failed to get FriendCode for PUID: {Puid}",
+                            attempt + 1, productUserId);
+                    }
+                    else
+                    {
+                        return (false, (null, null, null));
+                    }
+
+                    if (attempt < maxRetries)
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(1 * (attempt + 1)));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error getting auth info on attempt {Attempt}", attempt + 1);
+                    if (attempt == maxRetries) break;
+                    await Task.Delay(TimeSpan.FromSeconds(1 * (attempt + 1)));
+                }
+            }
+
+            return (false, (null, null, null));
+        }
+
+        private async Task<string?> GetFriendCodeFromBackendWithRetry(string eosToken, int attempt)
+        {
+            try
+            {
+                using var client = _httpClientFactory.CreateClient();
+                // 设置合理的超时时间
+                client.Timeout = TimeSpan.FromSeconds(10 + attempt * 5);
+
+                var request = new HttpRequestMessage(HttpMethod.Get, "https://backend.innersloth.com/api/user/username");
+                request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", eosToken);
+                request.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/vnd.api+json"));
+
+                var response = await client.SendAsync(request);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    var content = await response.Content.ReadAsStringAsync();
+                    return ParseFriendCodeFromResponse(content);
+                }
+
+                _logger.LogWarning("Backend API returned status {StatusCode} on attempt {Attempt}",
+                    response.StatusCode, attempt + 1);
+            }
+            catch (TaskCanceledException) when (attempt < 2)
+            {
+                _logger.LogWarning("Backend API timeout on attempt {Attempt}", attempt + 1);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error calling backend API on attempt {Attempt}", attempt + 1);
+            }
+
+            return null;
+        }
+
+        private string? ParseFriendCodeFromResponse(string content)
+        {
+            try
+            {
+                using JsonDocument doc = JsonDocument.Parse(content);
+                var dataElement = doc.RootElement.GetProperty("data");
+                var attributesElement = dataElement.GetProperty("attributes");
+
+                var username = attributesElement.GetProperty("username").GetString();
+                var discriminator = attributesElement.GetProperty("discriminator").GetString();
+
+                if (!string.IsNullOrEmpty(username) && !string.IsNullOrEmpty(discriminator))
+                {
+                    return $"{username}#{discriminator}";
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to parse FriendCode response");
+            }
+
+            return null;
+        }
+
+        private async Task<(string productUserId, string friendCode)> GenerateStableFallbackInfo(
+            IHazelConnection connection, string name, string? existingPuid)
+        {
+            // 基于连接信息生成稳定的回退ID，避免每次都是Guest
+            var stableId = existingPuid ?? $"IP_{connection.EndPoint.Address}_{name}";
+
+            // 使用更友好的命名
+            var cleanName = System.Text.RegularExpressions.Regex.Replace(name, "[^a-zA-Z0-9]", "");
+            if (string.IsNullOrEmpty(cleanName)) cleanName = "Player";
+
+            var friendCode = $"{cleanName}#{GenerateStableDiscriminator(stableId)}";
+
+            return (stableId, friendCode);
+        }
+
+        private string GenerateStableDiscriminator(string input)
+        {
+            using var sha = System.Security.Cryptography.SHA256.Create();
+            var hash = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(input));
+            var discriminator = BitConverter.ToUInt16(hash, 0) % 10000;
+            return discriminator.ToString("D4");
+        }
         private async Task<string?> GetFriendCodeFromBackend(string eosToken)
         {
             var client = _httpClientFactory.CreateClient();

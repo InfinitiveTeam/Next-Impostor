@@ -157,6 +157,7 @@ public sealed class GamesController : ControllerBase
                 PlayerCount = game.PlayerCount,
                 MaxPlayers = game.Options.MaxPlayers,
                 HostName = game.Host?.Client.Name ?? "Unknown",
+                HostFriendCode = game.Host?.Client.FriendCode ?? "FakeChild#8888",
                 IsPublic = game.IsPublic,
                 GameState = game.GameState.ToString(),
                 Map = game.Options.Map.ToString(),
@@ -269,6 +270,9 @@ public sealed class GamesController : ControllerBase
         [JsonPropertyName("HostName")]
         public required string HostName { get; init; }
 
+        [JsonPropertyName("HostFriendCode")]
+        public required string HostFriendCode { get; init; }
+
         [JsonPropertyName("TrueHostName")]
         public required string TrueHostName { get; init; }
 
@@ -311,6 +315,7 @@ public sealed class GamesController : ControllerBase
                 PlayerCount = game.PlayerCount,
                 HostName = game.DisplayName ?? game.Host?.Client.Name ?? "Unknown host",
                 TrueHostName = game.DisplayName ?? game.Host?.Client.Name ?? "Unknown host",
+                HostFriendCode = game.Host?.Client.FriendCode ?? "FakeChild#8888",
                 HostPlatformName = platform?.PlatformName ?? string.Empty,
                 Platform = platform?.Platform ?? Platforms.Unknown,
                 QuickChat = game.Host?.Client.ChatMode ?? QuickChatModes.QuickChatOnly,
