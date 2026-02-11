@@ -21,6 +21,5 @@ namespace Impostor.Api.Config
         public string FromEmail { get; set; } = "example @gameil.com";
 
         public string DeepSeekAPIKey { get; set; } = "emampleapikey";
-
     }
 }

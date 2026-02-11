@@ -39,6 +39,7 @@ namespace Impostor.Server
     internal static class Program
     {
         private static readonly string _logFolder = Path.Combine(Directory.GetCurrentDirectory(), "Log");
+        public static string _serverUrl = "https://imp.xtreme.net.cn";
 
         private static int Main(string[] args)
         {
