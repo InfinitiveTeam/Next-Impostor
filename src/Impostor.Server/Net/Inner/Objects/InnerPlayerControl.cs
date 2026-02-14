@@ -781,18 +781,7 @@ namespace Impostor.Server.Net.Inner.Objects
                             CheatCategory.NameLimits,
                             $"Client sent SetName with incorrect name, got '{name}', requested '{requested}', expected '{expected}'"))
                         {
-                            var friendCode = GetPlayerFriendCode(sender);
-                            var title = await GetPlayerTitleAsync(friendCode);
-                            var titleName = $"[{title}] {name}";
-                            if (!string.IsNullOrEmpty(title))
-                            {
-                                await SetNameAsync(titleName);
-                            }
-                            else
-                            {
-                                await SetNameAsync(expected);
-                            }
-
+                            await SetNameAsync(expected);
                             return false;
                         }
                     }
@@ -819,37 +808,6 @@ namespace Impostor.Server.Net.Inner.Objects
             }
 
             return true;
-        }
-
-        /// <summary>
-        /// 获取玩家头衔
-        /// </summary>
-        private async Task<string> GetPlayerTitleAsync(string friendCode)
-        {
-            try
-            {
-                using var httpClient = new HttpClient();
-                httpClient.Timeout = TimeSpan.FromSeconds(5);
-
-                var targetUrl = Environment.GetEnvironmentVariable("TARGET URL");
-
-                var response = await httpClient.GetAsync($"{Program._serverUrl}/api/title/get/{friendCode}");
-
-                if (response.IsSuccessStatusCode)
-                {
-                    var result = await response.Content.ReadFromJsonAsync<TitleInfoResponse>();
-                    if (result.Success && !string.IsNullOrEmpty(result.Title))
-                    {
-                        return result.Title;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"获取玩家头衔失败: {friendCode}");
-            }
-
-            return null;
         }
 
         private async ValueTask<bool> HandleCheckColor(ClientPlayer sender, ColorType color)
