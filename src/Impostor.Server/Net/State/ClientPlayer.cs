@@ -14,11 +14,11 @@ namespace Impostor.Server.Net.State
         private readonly ILogger<ClientPlayer> _logger;
         private readonly Timer _spawnTimeout;
         private readonly int _spawnTimeoutTime;
+        private CancellationTokenSource? _spawnTimeoutCts;
 
         public ClientPlayer(ILogger<ClientPlayer> logger, ClientBase client, Game game, int timeOutTime)
         {
             _logger = logger;
-            _spawnTimeout = new Timer(RunSpawnTimeout!, null, -1, -1);
             _spawnTimeoutTime = timeOutTime;
 
             Game = game;
@@ -43,12 +43,39 @@ namespace Impostor.Server.Net.State
 
         public void InitializeSpawnTimeout()
         {
-            _spawnTimeout.Change(_spawnTimeoutTime, -1);
+            _spawnTimeoutCts?.Cancel();
+            _spawnTimeoutCts = new CancellationTokenSource();
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(_spawnTimeoutTime, _spawnTimeoutCts.Token);
+                    if (Character == null)
+                    {
+                        _logger.LogInformation("{0} - Player {1} spawn timed out, kicking.", Game.Code, Client.Id);
+                        await KickAsync();
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                }
+                catch (Exception e)
+                {
+                    _logger.LogError(e, "Exception caught while kicking player for spawn timeout.");
+                }
+            });
         }
 
         public void DisableSpawnTimeout()
         {
-            _spawnTimeout.Change(-1, -1);
+            _spawnTimeoutCts?.Cancel();
+        }
+
+        public void Dispose()
+        {
+            _spawnTimeoutCts?.Cancel();
+            _spawnTimeoutCts?.Dispose();
         }
 
         /// <inheritdoc />

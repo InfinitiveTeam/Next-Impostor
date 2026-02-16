@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Impostor.Api.Config;
+using Impostor.Api.Net.Messages.Rpcs;
 using Impostor.Server.Service;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -129,6 +130,7 @@ namespace Impostor.Server.GameRecorder
     // ============== 主记录器类 ==============
     public static class GameRecorderMain
     {
+        private static bool _endedSend = false;
         private static readonly TimeSpan RecordExpirationTime = TimeSpan.FromHours(1);
 
         // 使用并发字典支持多线程访问
@@ -326,7 +328,7 @@ namespace Impostor.Server.GameRecorder
                         {
                             new {
                                 role = "system",
-                                content = "你是一个AI助手，你需要分析用户提供的Among Us游戏对局信息，给出每个玩家的相应的评分，同时输出用于在Unity游戏里显示的文字(可以使用<color=#……>添加颜色或者<b>加粗等)，不要超过500个字符"
+                                content = "你是一个AI助手，你需要分析用户提供的Among Us游戏对局信息，给出每个玩家的相应的评分，同时输出用于在Unity游戏里显示的文字(可以使用<color=#……>添加颜色或者<b>加粗等)，你仅需输出最终的Unity格式显示结果，如果用户提醒你这是一个模组的职业，请你一定要相信这条职业信息。在输出游戏结算时请注意玩家是否死亡，在死亡后玩家所说的话非死亡玩家时看不见的，并且对应好玩家的颜色和名称，不要重复评价玩家。只输出玩家的存亡状态不要输出职业。不要超过500个字符"
                             },
                             new { role = "user", content = gameData }
                         },
@@ -472,17 +474,18 @@ namespace Impostor.Server.GameRecorder
                             game.SendDeepSeekText = true; // 保持为true，等待玩家进入时发送
 
                             // 尝试发送给当前在线的玩家
-                            var sentCount = await TrySendToCurrentPlayers(game, analysis);
-                            if (sentCount > 0)
-                            {
-                                Program.LogToConsole($"已向 {sentCount} 名在线玩家发送分析结果", ConsoleColor.Cyan);
-                                game.SendDeepSeekText = false; // 已经发送过了
+                            if (_endedSend) {
+                                var sentCount = await TrySendToCurrentPlayers(game, analysis);
+                                if (sentCount > 0)
+                                {
+                                    Program.LogToConsole($"已向 {sentCount} 名在线玩家发送分析结果", ConsoleColor.Cyan);
+                                    game.SendDeepSeekText = false; // 已经发送过了
+                                }
+                                else
+                                {
+                                    Program.LogToConsole($"没有在线玩家可接收分析结果，已保存等待新玩家加入", ConsoleColor.Yellow);
+                                }
                             }
-                            else
-                            {
-                                Program.LogToConsole($"没有在线玩家可接收分析结果，已保存等待新玩家加入", ConsoleColor.Yellow);
-                            }
-
                             return analysis;
                         }
                     }
@@ -563,7 +566,7 @@ namespace Impostor.Server.GameRecorder
                 // 如果正在分析中，发送思考中提示
                 try
                 {
-                    await playerControl.SendChatToPlayerAsync("<color=#ffa500>AI正在分析本局游戏，请稍后=~=</color>");
+                    if(_endedSend) await playerControl.SendChatToPlayerAsync("<color=#ffa500>AI正在分析本局游戏，请稍后=~=</color>");
                     Program.LogToConsole($"向新玩家发送AI思考中提示", ConsoleColor.Yellow);
                 }
                 catch (Exception ex)
@@ -576,7 +579,7 @@ namespace Impostor.Server.GameRecorder
                 // 如果有分析结果，正常发送
                 try
                 {
-                    await playerControl.SendChatToPlayerAsync(game.DeepSeekText);
+                    if (_endedSend) await playerControl.SendChatToPlayerAsync(game.DeepSeekText);
                     Program.LogToConsole($"向新玩家发送已存在的DeepSeek分析结果", ConsoleColor.Cyan);
 
                     if (game.SendDeepSeekText.HasValue && game.SendDeepSeekText.Value)
@@ -760,6 +763,7 @@ namespace Impostor.Server.GameRecorder
             public static NanoMessage Message3 { get; set; }
             public static NanoMessage Message4 { get; set; }
             public static NanoMessage Message5 { get; set; }
+            public static NanoMessage Message6 { get; set; }
             public static void OnPlayerUpdate(string roomCode, PlayerDataStore playerDataStore)
             {
                 var recorder = GetOrCreateRoomRecorder(roomCode);
@@ -794,6 +798,12 @@ namespace Impostor.Server.GameRecorder
                 Message5 = new NanoMessage(NanoMessageType.Common, $"玩家 {playerName} 完成了一个任务");
                 recorder.GameData.AppendLine(Message5.ToString());
                 Program.LogToConsole($"房间 {roomCode} 玩家完成任务已记录", ConsoleColor.Gray);
+            }
+            public static void OnPlayerGMIASetRole(string roomCode, string playerName , string role)
+            {
+                var recorder = GetOrCreateRoomRecorder(roomCode);
+                Message6 = new NanoMessage(NanoMessageType.Common, $"玩家 {playerName} 的职业是 {role}，请注意，本次对局为TheOtherRolesGMIA对局，职业不仅限于原版游戏。");
+                recorder.GameData.AppendLine(Message6.ToString());
             }
         }
 

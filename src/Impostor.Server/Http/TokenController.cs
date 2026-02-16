@@ -64,7 +64,7 @@ public sealed class TokenController : ControllerBase
             var clientIp = HttpContext.Connection.RemoteIpAddress;
 
             // 存储用户认证信息到缓存，包含IP地址
-            AuthCacheService.AddUserAuth(productUserId, eosToken, clientIp);
+            AuthCacheService.AddUserAuth(productUserId, eosToken, clientIp, request.Username, request.ClientVersion);
 
             _logger.LogInformation(
                 "SUCCESS: User authenticated and cached: PUID={ProductUserId}, IP={ClientIp}",

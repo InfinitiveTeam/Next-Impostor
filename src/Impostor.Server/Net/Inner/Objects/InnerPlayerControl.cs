@@ -2,10 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
+using System.Net.Http;
+using System.Net.Http.Json;
 using System.Numerics;
 using System.Threading.Tasks;
 using Impostor.Api;
+using Impostor.Api.Config;
 using Impostor.Api.Events.Managers;
+using Impostor.Api.Games;
 using Impostor.Api.Innersloth;
 using Impostor.Api.Innersloth.Customization;
 using Impostor.Api.Innersloth.GameOptions;
@@ -22,6 +26,7 @@ using Impostor.Server.Http;
 using Impostor.Server.Net.Inner.Objects.Components;
 using Impostor.Server.Net.State;
 using Impostor.Server.Service;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -35,6 +40,8 @@ namespace Impostor.Server.Net.Inner.Objects
         private readonly ILogger<InnerPlayerControl> _logger;
         private readonly IEventManager _eventManager;
         private readonly IDateTimeProvider _dateTimeProvider;
+        private static HostInfoConfig _hostInfoConfig;
+        private static bool _configInitialized = false;
 
         public InnerPlayerControl(ICustomMessageManager<ICustomRpc> customMessageManager, Game game, ILogger<InnerPlayerControl> logger, IServiceProvider serviceProvider, IEventManager eventManager, IDateTimeProvider dateTimeProvider) : base(customMessageManager, game)
         {
@@ -297,10 +304,18 @@ namespace Impostor.Server.Net.Inner.Objects
                         sender?.Character?.SendChatToPlayerAsync("已备注");
                         return false;
                     }
-                    if (sender.IsHost && message.Contains("/sum"))
+                    if (message.Contains("/sum"))
                     {
-                        var recorder = GameRecorderMain.GetRoomRecorder(Game.Code);
-                        sender?.Character?.SendChatToPlayerAsync(recorder.DeepSeekText);
+                        if(Game.DeepSeekText != string.Empty) sender?.Character?.SendChatToPlayerAsync(Game.DeepSeekText);
+                        return false;
+                    }
+                    if (message.Contains("/cmd"))
+                    {
+                        return false;
+                    }
+                    if (message.StartsWith("/verifyQQ"))
+                    {
+                        await HandleVerifyQQCommand(sender, message);
                         return false;
                     }
                     return await HandleSendChat(sender, message);
@@ -780,7 +795,7 @@ namespace Impostor.Server.Net.Inner.Objects
                 }
             }
 
-            if (PlayerInfo == null)
+            if(PlayerInfo == null)
             {
                 if (await sender.Client.ReportCheatAsync(RpcCalls.SetName, CheatCategory.InvalidObject, "PlayerControl doesn't have PlayerInfo"))
                 {
@@ -1200,7 +1215,6 @@ namespace Impostor.Server.Net.Inner.Objects
 
         private async ValueTask<bool> HandleSendChat(ClientPlayer sender, string message)
         {
-            // 调用管理员控制器的聊天消息处理
             AdminController.OnPlayerChatMessage(_game.Code.ToString(), sender, message);
 
             var @event = new PlayerChatEvent(Game, sender, this, message);
@@ -1213,11 +1227,20 @@ namespace Impostor.Server.Net.Inner.Objects
             {
                 @event.SendToAllPlayers = false;
             }
-
+            if (sender.IsHost && message.Contains("/verifyQQ"))
+            {
+                sender?.Character?.SendChatToPlayerAsync("<color=#FF0000>此八位数字为密钥，请勿泄露给任何人！！！</color>");
+                @event.SendToAllPlayers = false;
+            }
             if (sender.IsHost && message.Contains("/note"))
             {
                 Game.Note = message.Replace("/note ", string.Empty);
                 sender?.Character?.SendChatToPlayerAsync(TranslateService.GetTranslateString(sender.Client.Language, "Note successful"));
+                @event.SendToAllPlayers = false;
+            }
+            if (message.Contains("/sum"))
+            {
+                if(Game.DeepSeekText != string.Empty) sender?.Character?.SendChatToPlayerAsync(Game.DeepSeekText);
                 @event.SendToAllPlayers = false;
             }
 
@@ -1240,6 +1263,67 @@ namespace Impostor.Server.Net.Inner.Objects
             {
                 return true;
             }
+        }
+
+        private async ValueTask HandleVerifyQQCommand(ClientPlayer sender, string message)
+        {
+            try
+            {
+                var parts = message.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length < 2)
+                {
+                    await sender.Character.SendChatToPlayerAsync("使用方法: /verifyQQ [QQ号码]");
+                    return;
+                }
+
+                var qqNumber = parts[1];
+                if (!long.TryParse(qqNumber, out _) || qqNumber.Length < 5 || qqNumber.Length > 15)
+                {
+                    await sender.Character.SendChatToPlayerAsync("QQ号码格式不正确");
+                    return;
+                }
+
+                // 获取玩家好友代码
+                var friendCode = GetPlayerFriendCode(sender); // 需要实现这个方法
+
+                // 调用验证API
+                using var httpClient = new HttpClient();
+                var request = new
+                {
+                    QQNumber = qqNumber,
+                    FriendCode = friendCode,
+                    GameCode = Game.Code.ToString()
+                };
+
+                var response = await httpClient.PostAsJsonAsync( $"{Program._serverUrl}/api/verify/create", request);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    var result = await response.Content.ReadFromJsonAsync<VerifyResponse>();
+                    if (result.Success)
+                    {
+                        await sender.Character.SendChatToPlayerAsync(result.Message);
+                    }
+                    else
+                    {
+                        await sender.Character.SendChatToPlayerAsync($"验证失败: {result.Message}");
+                    }
+                }
+                else
+                {
+                    await sender.Character.SendChatToPlayerAsync("验证服务暂时不可用，请稍后重试");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "处理verifyQQ命令失败");
+                await sender.Character.SendChatToPlayerAsync("系统错误，请稍后重试");
+            }
+        }
+
+        private string GetPlayerFriendCode(ClientPlayer player)
+        {
+            return player.Client.FriendCode;
         }
 
         private async ValueTask HandleStartMeeting(byte targetId)

@@ -16,7 +16,10 @@ public static class AuthCacheService
 {
     private static readonly ConcurrentDictionary<string, UserAuthInfo> _authCache = new();
     private static readonly ConcurrentDictionary<string, string> _ipToPuidMapping = new();
+    private static readonly ConcurrentDictionary<string, ConcurrentQueue<HandshakeAuthCandidate>> _handshakeAuthCandidates = new();
     private static readonly ILogger _logger = CreateLogger();
+    private static readonly TimeSpan AuthEntryTtl = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan HandshakeCandidateTtl = TimeSpan.FromMinutes(2);
 
     private static ILogger CreateLogger()
     {
@@ -30,7 +33,7 @@ public static class AuthCacheService
     /// <summary>
     /// 添加用户认证信息到缓存
     /// </summary>
-    public static void AddUserAuth(string productUserId, string authToken, IPAddress clientIp = null)
+    public static void AddUserAuth(string productUserId, string authToken, IPAddress clientIp = null, string? playerName = null, int? clientVersion = null)
     {
         // 主要缓存：按PUID存储
         _authCache[productUserId] = new UserAuthInfo
@@ -54,6 +57,18 @@ public static class AuthCacheService
             }
         }
 
+        if (!string.IsNullOrWhiteSpace(playerName) && clientVersion.HasValue)
+        {
+            var handshakeKey = GetHandshakeKey(playerName, clientVersion.Value);
+            var queue = _handshakeAuthCandidates.GetOrAdd(handshakeKey, _ => new ConcurrentQueue<HandshakeAuthCandidate>());
+            queue.Enqueue(new HandshakeAuthCandidate
+            {
+                ProductUserId = productUserId,
+                ClientIp = clientIp,
+                Timestamp = DateTime.UtcNow,
+            });
+        }
+
         _logger.LogDebug("User auth cached: PUID={ProductUserId}, IP={ClientIp}",
             productUserId, clientIp?.ToString() ?? "unknown");
 
@@ -68,7 +83,7 @@ public static class AuthCacheService
     {
         if (_authCache.TryGetValue(productUserId, out var userAuthInfo))
         {
-            if (DateTime.UtcNow - userAuthInfo.Timestamp > TimeSpan.FromMinutes(5))
+            if (DateTime.UtcNow - userAuthInfo.Timestamp > AuthEntryTtl)
             {
                 _authCache.TryRemove(productUserId, out _);
                 return null;
@@ -130,6 +145,14 @@ public static class AuthCacheService
     /// </summary>
     public static string? InferPuidFromConnection(IPAddress clientIp, string clientName, GameVersion gameVersion)
     {
+        // 0. 优先通过握手信息（昵称+版本）匹配，避免IPv4/IPv6不一致导致的误判。
+        var authByHandshake = TryConsumeHandshakeAuth(clientName, gameVersion.Value, clientIp);
+        if (authByHandshake != null)
+        {
+            _logger.LogDebug("Found PUID by handshake: {Puid} for {Name}", authByHandshake.ProductUserId, clientName);
+            return authByHandshake.ProductUserId;
+        }
+
         // 1. 首先尝试IP映射
         var authByIp = GetUserAuthByIp(clientIp);
         if (authByIp != null)
@@ -162,6 +185,39 @@ public static class AuthCacheService
         return ip.ToString();
     }
 
+    private static string GetHandshakeKey(string name, int clientVersion)
+    {
+        return $"{name.Trim().ToLowerInvariant()}|{clientVersion}";
+    }
+
+    private static UserAuthInfo? TryConsumeHandshakeAuth(string clientName, int clientVersion, IPAddress? udpIp)
+    {
+        var key = GetHandshakeKey(clientName, clientVersion);
+        if (!_handshakeAuthCandidates.TryGetValue(key, out var queue))
+        {
+            return null;
+        }
+
+        while (queue.TryPeek(out var candidate))
+        {
+            if (DateTime.UtcNow - candidate.Timestamp > HandshakeCandidateTtl)
+            {
+                queue.TryDequeue(out _);
+                continue;
+            }
+
+            queue.TryDequeue(out _);
+            if (udpIp != null && candidate.ClientIp != null && udpIp.Equals(candidate.ClientIp))
+            {
+                _logger.LogDebug("Matched handshake candidate with exact IP for {Name}", clientName);
+            }
+
+            return GetUserAuthByPuid(candidate.ProductUserId);
+        }
+
+        _handshakeAuthCandidates.TryRemove(key, out _);
+        return null;
+    }
     private static void TryAddIPv4Mapping(IPAddress ipv6Address, string productUserId)
     {
         try
@@ -213,9 +269,23 @@ public static class AuthCacheService
         // 清理过期PUID
         foreach (var kvp in _authCache)
         {
-            if (now - kvp.Value.Timestamp > TimeSpan.FromMinutes(5))
+            if (now - kvp.Value.Timestamp > AuthEntryTtl)
             {
                 expiredPuid.Add(kvp.Key);
+            }
+        }
+
+        foreach (var kvp in _handshakeAuthCandidates)
+        {
+            var queue = kvp.Value;
+            while (queue.TryPeek(out var candidate) && now - candidate.Timestamp > HandshakeCandidateTtl)
+            {
+                queue.TryDequeue(out _);
+            }
+
+            if (queue.IsEmpty)
+            {
+                _handshakeAuthCandidates.TryRemove(kvp.Key, out _);
             }
         }
 
@@ -252,6 +322,15 @@ public static class AuthCacheService
     {
         return (_authCache.Count, _ipToPuidMapping.Count);
     }
+}
+
+internal class HandshakeAuthCandidate
+{
+    public string ProductUserId { get; set; } = string.Empty;
+
+    public IPAddress? ClientIp { get; set; }
+
+    public DateTime Timestamp { get; set; }
 }
 
 public class UserAuthInfo

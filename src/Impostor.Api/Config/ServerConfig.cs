@@ -1,4 +1,4 @@
-﻿using Impostor.Api.Utils;
+using Impostor.Api.Utils;
 
 namespace Impostor.Api.Config
 {

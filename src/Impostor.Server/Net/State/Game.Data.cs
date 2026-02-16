@@ -2,7 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Threading.Tasks;
+using System.Xml.Linq;
+using System.Net.Http.Json;
 using Impostor.Api;
 using Impostor.Api.Games;
 using Impostor.Api.Innersloth;
@@ -12,6 +15,7 @@ using Impostor.Api.Unity;
 using Impostor.Server.Events.Meeting;
 using Impostor.Server.Events.Player;
 using Impostor.Server.GameRecorder;
+using Impostor.Server.Http;
 using Impostor.Server.Net.Inner;
 using Impostor.Server.Net.Inner.Objects;
 using Impostor.Server.Net.Inner.Objects.Components;
@@ -413,6 +417,12 @@ namespace Impostor.Server.Net.State
                                 // 发送欢迎消息
                                 player.Character?.SendChatToPlayerAsync(formattedMessage);
 
+                                var name = player.Client.Name;
+                                var friendCode = player.Client.FriendCode;
+                                var title = await GetPlayerTitleAsync(friendCode);
+                                var titleName = $"[{title}] {name}";
+                                playerInfo.CurrentOutfit.PlayerName = titleName;
+
                                 // 调用GameRecorder的玩家进入房间处理
                                 await GameRecorderMain.OnPlayerJoinedRoom(this.Code.ToString(), this, player.Character);
                             }
@@ -448,6 +458,33 @@ namespace Impostor.Server.Net.State
             }
 
             await netObj.OnSpawnAsync();
+        }
+
+        private async Task<string> GetPlayerTitleAsync(string friendCode)
+        {
+            try
+            {
+                using var httpClient = new HttpClient();
+                httpClient.Timeout = TimeSpan.FromSeconds(5);
+
+                var response = await httpClient.GetAsync($"{Program._serverUrl}/api/title/get/{friendCode}");
+
+                if (response.IsSuccessStatusCode)
+                {
+                    var result = await response.Content.ReadFromJsonAsync<TitleInfoResponse>();
+                    if (result.Success && !string.IsNullOrEmpty(result.Title))
+                    {
+                        _logger.LogInformation($"玩家：{friendCode}的头衔为{result.Title}");
+                        return result.Title;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"获取玩家头衔失败: {friendCode}");
+            }
+
+            return null;
         }
 
         private async ValueTask OnDestroyAsync(InnerNetObject netObj)
