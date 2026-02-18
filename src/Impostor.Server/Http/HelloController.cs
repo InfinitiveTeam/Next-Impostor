@@ -1,6 +1,7 @@
-using System;
-using System.Diagnostics;
+using System.IO;
 using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
 using Impostor.Api.Games;
 using Impostor.Api.Games.Managers;
 using Impostor.Api.Innersloth;
@@ -18,11 +19,7 @@ public sealed class HelloController : ControllerBase
     private static bool _shownHello = false;
     private readonly ILogger<HelloController> _logger;
     private readonly IGameManager _gameManager;
-
-    // 用于计算 CPU 利用率的静态字段
-    private static DateTime _lastCpuTimeCheck = DateTime.UtcNow;
-    private static TimeSpan _lastCpuTime = Process.GetCurrentProcess().TotalProcessorTime;
-    private static readonly object _cpuLock = new object();
+    private static readonly object _fileLock = new object();
 
     public HelloController(ILogger<HelloController> logger, IGameManager gameManager)
     {
@@ -31,7 +28,7 @@ public sealed class HelloController : ControllerBase
     }
 
     [HttpGet]
-    public IActionResult GetHello()
+    public async Task<IActionResult> GetHello()
     {
         if (!_shownHello)
         {
@@ -39,7 +36,6 @@ public sealed class HelloController : ControllerBase
             _logger.LogInformation("NImpostor's Http server is reachable (this message is only printed once per start)");
         }
 
-        // 获取服务器状态数据
         var allGames = _gameManager.Games.ToList();
         var publicGames = allGames.Where(game => game.IsPublic).ToList();
         var activeGames = allGames.Where(game => game.GameState == GameStates.Started).ToList();
@@ -48,33 +44,69 @@ public sealed class HelloController : ControllerBase
         var totalPlayers = allGames.Sum(game => game.PlayerCount);
         var totalPublicPlayers = publicGames.Sum(game => game.PlayerCount);
 
-        // 获取系统资源信息
-        var process = Process.GetCurrentProcess();
-        double cpuUsage = 0;
+        var filePath = Path.Combine(Directory.GetCurrentDirectory(), "Page", "index.html");
+        var directoryPath = Path.GetDirectoryName(filePath);
 
-        lock (_cpuLock)
+        try
         {
-            var currentCpuTime = process.TotalProcessorTime;
-            var currentTime = DateTime.UtcNow;
-            var cpuUsedMs = (currentCpuTime - _lastCpuTime).TotalMilliseconds;
-            var totalMsPassed = (currentTime - _lastCpuTimeCheck).TotalMilliseconds;
-
-            if (totalMsPassed > 0)
+            lock (_fileLock)
             {
-                cpuUsage = (cpuUsedMs / (Environment.ProcessorCount * totalMsPassed)) * 100;
-                if (cpuUsage > 100) cpuUsage = 100;
+                if (!Directory.Exists(directoryPath))
+                {
+                    _logger.LogInformation("Creating directory: {DirectoryPath}", directoryPath);
+                    Directory.CreateDirectory(directoryPath);
+                }
             }
-
-            _lastCpuTime = currentCpuTime;
-            _lastCpuTimeCheck = currentTime;
+        }
+        catch (System.Exception ex)
+        {
+            _logger.LogError(ex, "Failed to create directory: {DirectoryPath}", directoryPath);
+            return StatusCode(500, "Failed to create page directory");
         }
 
-        var memoryMB = process.WorkingSet64 / 1024 / 1024; // 转换为 MB
-        var uptime = DateTime.Now - process.StartTime;
-        string uptimeString = $"{(int)uptime.TotalDays}d {uptime.Hours}h {uptime.Minutes}m";
+        if (!System.IO.File.Exists(filePath))
+        {
+            _logger.LogWarning("HTML file not found, creating default: {FilePath}", filePath);
+            try
+            {
+                lock (_fileLock)
+                {
+                    var defaultHtmlContent = GetDefaultHtmlContent();
+                    System.IO.File.WriteAllText(filePath, defaultHtmlContent, Encoding.UTF8);
+                    _logger.LogInformation("Default HTML file created: {FilePath}", filePath);
+                }
+            }
+            catch (System.Exception ex)
+            {
+                _logger.LogError(ex, "Failed to create default HTML file: {FilePath}", filePath);
+                return await ReturnDefaultContent(allGames.Count);
+            }
+        }
 
-        var htmlContent = $@"
-<!DOCTYPE html>
+        string htmlContent;
+        try
+        {
+            htmlContent = await System.IO.File.ReadAllTextAsync(filePath, Encoding.UTF8);
+        }
+        catch (System.Exception ex)
+        {
+            _logger.LogError(ex, "Failed to read HTML file: {FilePath}", filePath);
+            return await ReturnDefaultContent(allGames.Count);
+        }
+        htmlContent = htmlContent.Replace("{allGames.Count}", allGames.Count.ToString());
+        return Content(htmlContent, "text/html");
+    }
+
+    private async Task<ContentResult> ReturnDefaultContent(int gameCount)
+    {
+        var defaultHtml = GetDefaultHtmlContent();
+        defaultHtml = defaultHtml.Replace("[gameCount]", gameCount.ToString());
+        return Content(defaultHtml, "text/html");
+    }
+
+    private string GetDefaultHtmlContent()
+    {
+        return @"<!DOCTYPE html>
 <html lang=""zh-CN"">
 <head>
     <meta charset=""UTF-8"">
@@ -371,6 +403,5 @@ public sealed class HelloController : ControllerBase
     </div>
 </body>
 </html>";
-        return Content(htmlContent, "text/html");
     }
 }
