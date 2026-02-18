@@ -307,7 +307,10 @@ namespace Impostor.Server
                     builder.ConfigureServices(services =>
                     {
                         services.AddControllers();
-                        services.AddSingleton<VoiceRoomManager>();
+                        if (httpConfig.EnableVoiceChatServer)
+                        {
+                            services.AddSingleton<VoiceRoomManager>();
+                        }
                     });
 
                     builder.Configure(app =>
@@ -321,8 +324,11 @@ namespace Impostor.Server
                             }
                         }
 
-                        app.UseWebSockets();
-                        app.UseMiddleware<VoiceWebSocketMiddleware>();
+                        if (httpConfig.EnableVoiceChatServer)
+                        {
+                            app.UseWebSockets();
+                            app.UseMiddleware<VoiceWebSocketMiddleware>();
+                        }
 
                         app.UseRouting();
 

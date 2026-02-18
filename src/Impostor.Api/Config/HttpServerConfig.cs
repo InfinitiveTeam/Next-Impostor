@@ -13,6 +13,11 @@ public class HttpServerConfig
     public bool Enabled { get; set; } = true;
 
     /// <summary>
+    /// Gets or sets a value indicating whether the integrated VC voice websocket server is enabled.
+    /// </summary>
+    public bool EnableVoiceChatServer { get; set; } = false;
+
+    /// <summary>
     /// Gets or sets the IP address the HTTP Matchmaking server will listen on.
     /// </summary>
     /// Use "127.0.0.1" if you are running behind a reverse proxy or just testing locally.

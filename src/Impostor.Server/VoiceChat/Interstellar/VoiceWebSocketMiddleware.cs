@@ -110,7 +110,7 @@ internal sealed class VoiceWebSocketMiddleware
         {
             while (!cancellationToken.IsCancellationRequested && !session.IsClosed)
             {
-                var result = await sessionReceiveAsync(session, buffer, cancellationToken);
+                var result = await SessionReceiveAsync(session, buffer, cancellationToken);
                 if (result.CloseRequested)
                 {
                     break;
@@ -139,7 +139,7 @@ internal sealed class VoiceWebSocketMiddleware
         }
     }
 
-    private static async Task<(int Count, WebSocketMessageType MessageType, bool CloseRequested)> sessionReceiveAsync(
+    private static async Task<(int Count, WebSocketMessageType MessageType, bool CloseRequested)> SessionReceiveAsync(
         VoiceSession session,
         byte[] buffer,
         CancellationToken cancellationToken)
@@ -150,7 +150,7 @@ internal sealed class VoiceWebSocketMiddleware
         while (true)
         {
             var segment = new ArraySegment<byte>(buffer, total, buffer.Length - total);
-            var result = await sessionReceiveRawAsync(session, segment, cancellationToken);
+            var result = await SessionReceiveRawAsync(session, segment, cancellationToken);
             if (result.CloseRequested)
             {
                 return (0, result.MessageType, true);
@@ -165,7 +165,7 @@ internal sealed class VoiceWebSocketMiddleware
         }
     }
 
-    private static async Task<(int Count, bool EndOfMessage, WebSocketMessageType MessageType, bool CloseRequested)> sessionReceiveRawAsync(
+    private static async Task<(int Count, bool EndOfMessage, WebSocketMessageType MessageType, bool CloseRequested)> SessionReceiveRawAsync(
         VoiceSession session,
         ArraySegment<byte> segment,
         CancellationToken cancellationToken)
