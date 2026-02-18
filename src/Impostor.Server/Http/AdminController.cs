@@ -1559,7 +1559,7 @@ public sealed class AdminController : ControllerBase
             loadData();
             
             // 设置自动刷新（每5秒）
-            autoRefreshTimer = setInterval(loadData, 5000);
+            autoRefreshTimer = setInterval(loadData, 30000);
         }});
         
         // 切换主题
