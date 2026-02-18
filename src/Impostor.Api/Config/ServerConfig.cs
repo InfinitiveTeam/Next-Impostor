@@ -6,9 +6,6 @@ namespace Impostor.Api.Config
     {
         public const string Section = "Server";
 
-        private string? _resolvedPublicIp;
-        private string? _resolvedListenIp;
-
         public string PublicIp { get; set; } = "127.0.0.1";
 
         public ushort PublicPort { get; set; } = 22023;
@@ -17,14 +14,17 @@ namespace Impostor.Api.Config
 
         public ushort ListenPort { get; set; } = 22023;
 
+        /// <summary>
+        /// 解析对外地址。为了支持 DDNS，这里每次调用都会重新解析域名。
+        /// </summary>
         public string ResolvePublicIp()
         {
-            return _resolvedPublicIp ??= IpUtils.ResolveIp(PublicIp);
+            return IpUtils.ResolveIp(PublicIp);
         }
 
         public string ResolveListenIp()
         {
-            return _resolvedListenIp ??= IpUtils.ResolveIp(ListenIp);
+            return IpUtils.ResolveIp(ListenIp);
         }
     }
 }
