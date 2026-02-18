@@ -24,7 +24,7 @@ public sealed class GamesController : ControllerBase
 {
     private readonly IGameManager _gameManager;
     private readonly ListingManager _listingManager;
-    private readonly HostServer _hostServer;
+    private readonly ServerConfig _serverConfig;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="GamesController"/> class.
@@ -36,8 +36,7 @@ public sealed class GamesController : ControllerBase
     {
         _gameManager = gameManager;
         _listingManager = listingManager;
-        var config = serverConfig.Value;
-        _hostServer = HostServer.From(IPAddress.Parse(config.ResolvePublicIp()), config.PublicPort);
+        _serverConfig = serverConfig.Value;
     }
 
     /// <summary>
@@ -97,7 +96,7 @@ public sealed class GamesController : ControllerBase
     [HttpPut]
     public IActionResult Put()
     {
-        return Ok(_hostServer);
+        return Ok(HostServer.From(IPAddress.Parse(_serverConfig.ResolvePublicIp()), _serverConfig.PublicPort));
     }
 
     [HttpGet("{gameId}")]
