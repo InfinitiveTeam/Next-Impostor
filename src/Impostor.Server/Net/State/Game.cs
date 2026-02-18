@@ -40,7 +40,7 @@ namespace Impostor.Server.Net.State
             ILogger<Game> logger,
             IServiceProvider serviceProvider,
             GameManager gameManager,
-            IPEndPoint publicIp,
+            Func<IPEndPoint> publicIpProvider,
             GameCode code,
             IGameOptions options,
             GameFilterOptions filterOptions,
@@ -56,7 +56,7 @@ namespace Impostor.Server.Net.State
             _players = new ConcurrentDictionary<int, ClientPlayer>();
             _bannedIps = new HashSet<IPAddress>();
 
-            PublicIp = publicIp;
+            _publicIpProvider = publicIpProvider;
             Code = code;
             HostId = -1;
             GameState = GameStates.NotStarted;
@@ -71,7 +71,9 @@ namespace Impostor.Server.Net.State
             Items = new ConcurrentDictionary<object, object>();
         }
 
-        public IPEndPoint PublicIp { get; }
+        private readonly Func<IPEndPoint> _publicIpProvider;
+
+        public IPEndPoint PublicIp => _publicIpProvider();
 
         public GameCode Code { get; }
 
