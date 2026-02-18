@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Net.Http;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Impostor.Api.Config;
@@ -27,7 +25,6 @@ namespace Impostor.Server.Net.Manager
         private readonly ICompatibilityManager _compatibilityManager;
         private readonly CompatibilityConfig _compatibilityConfig;
         private readonly IClientFactory _clientFactory;
-        private readonly IHttpClientFactory _httpClientFactory;
         private int _idLast;
 
         public ClientManager(
@@ -35,8 +32,7 @@ namespace Impostor.Server.Net.Manager
             IEventManager eventManager,
             IClientFactory clientFactory,
             ICompatibilityManager compatibilityManager,
-            IOptions<CompatibilityConfig> compatibilityConfig,
-            IHttpClientFactory httpClientFactory)
+            IOptions<CompatibilityConfig> compatibilityConfig)
         {
             _logger = logger;
             _eventManager = eventManager;
@@ -44,7 +40,6 @@ namespace Impostor.Server.Net.Manager
             _clients = new ConcurrentDictionary<int, ClientBase>();
             _compatibilityManager = compatibilityManager;
             _compatibilityConfig = compatibilityConfig.Value;
-            _httpClientFactory = httpClientFactory;
 
             if (_compatibilityConfig.AllowFutureGameVersions
                 || _compatibilityConfig.AllowHostAuthority
@@ -87,7 +82,7 @@ namespace Impostor.Server.Net.Manager
             return clientId;
         }
 
-        public async ValueTask RegisterConnectionAsync(IHazelConnection connection, string name, GameVersion clientVersion, Language language, QuickChatModes chatMode, PlatformSpecificData? platformSpecificData)
+        public async ValueTask RegisterConnectionAsync(IHazelConnection connection, string name, GameVersion clientVersion, Language language, QuickChatModes chatMode, PlatformSpecificData? platformSpecificData, string? matchmakerToken = null, string? handshakeFriendCode = null)
         {
             var versionCompare = _compatibilityManager.CanConnectToServer(clientVersion);
             if (versionCompare == ICompatibilityManager.VersionCompareResult.ServerTooOld && _compatibilityConfig.AllowFutureGameVersions && platformSpecificData != null)
@@ -112,8 +107,6 @@ namespace Impostor.Server.Net.Manager
                 return;
             }
 
-            // Warn when players connect using the +25 flag that disables server authority.
-            // This changes game behaviour, so we'd like to know if it's in use.
             if (clientVersion.HasDisableServerAuthorityFlag)
             {
                 if (!_compatibilityConfig.AllowHostAuthority)
@@ -138,209 +131,95 @@ namespace Impostor.Server.Net.Manager
                 return;
             }
 
+            var clientIp = connection.EndPoint.Address;
             string? productUserId = null;
             string? friendCode = null;
-            UserAuthInfo? userInfo = null;
 
-            // 1. 首先尝试通过IP地址获取认证信息
-            var clientIp = connection.EndPoint.Address;
-            userInfo = AuthCacheService.GetUserAuthByIp(clientIp);
-
-            if (userInfo == null)
+            // === 核心认证逻辑 ===
+            // 优先方案 1：从握手包中的 matchmakerToken 解析（最可靠，不依赖 IP）
+            if (!string.IsNullOrEmpty(matchmakerToken))
             {
-                // 2. 如果IP找不到，尝试推断PUID
-                productUserId = AuthCacheService.InferPuidFromConnection(clientIp, name, clientVersion);
-                if (productUserId != null)
+                var authInfo = AuthCacheService.GetUserAuthByToken(matchmakerToken);
+                if (authInfo != null)
                 {
-                    userInfo = AuthCacheService.GetUserAuthByPuid(productUserId);
+                    productUserId = authInfo.ProductUserId;
+                    friendCode = authInfo.FriendCode;
+                    _logger.LogInformation(
+                        "Client {Name} authenticated via matchmakerToken: PUID={Puid}, FriendCode={FriendCode}, IP={Ip}",
+                        name, productUserId, friendCode, clientIp);
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        "Client {Name} sent matchmakerToken but it was not found in cache. IP={Ip}, Token={Token}",
+                        name, clientIp, matchmakerToken.Length > 20 ? matchmakerToken[..20] + "..." : matchmakerToken);
                 }
             }
-            else
-            {
-                productUserId = userInfo.ProductUserId;
-            }
 
-            // 3. 如果有认证信息，获取FriendCode
-            if (userInfo != null && !string.IsNullOrEmpty(userInfo.AuthToken))
+            // 优先方案 2：握手包中直接携带了 friendCode（DTLS 模式）
+            if (productUserId == null && !string.IsNullOrEmpty(handshakeFriendCode))
             {
-                friendCode = await GetFriendCodeFromBackend(userInfo.AuthToken);
-
-                if (string.IsNullOrEmpty(friendCode))
+                // 通过 friendCode 在缓存中查找对应的 PUID
+                var authInfo = AuthCacheService.GetUserAuthByFriendCode(handshakeFriendCode);
+                if (authInfo != null)
                 {
-                    friendCode = GenerateFallbackFriendCode(productUserId ?? "unknown");
+                    productUserId = authInfo.ProductUserId;
+                    friendCode = handshakeFriendCode;
+                    _logger.LogInformation(
+                        "Client {Name} authenticated via handshake friendCode: PUID={Puid}, IP={Ip}",
+                        name, productUserId, clientIp);
                 }
             }
-            else
+
+            // 回退方案：通过 IP 精确匹配（不允许使用"最近玩家"猜测）
+            if (productUserId == null)
             {
-                _logger.LogWarning("Client {Name} connected without authentication, IP: {ClientIp}",
-                    name, clientIp);
+                var authByIp = AuthCacheService.GetUserAuthByIp(clientIp);
+                if (authByIp != null)
+                {
+                    productUserId = authByIp.ProductUserId;
+                    friendCode = authByIp.FriendCode;
+                    _logger.LogInformation(
+                        "Client {Name} authenticated via IP match: PUID={Puid}, IP={Ip}",
+                        name, productUserId, clientIp);
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        "Client {Name} connected without authentication. IP={Ip}",
+                        name, clientIp);
+                }
             }
 
             var client = _clientFactory.Create(connection, name, clientVersion, language, chatMode, platformSpecificData);
 
-            // 设置用户认证信息到Client对象
-            if (!string.IsNullOrEmpty(productUserId) && !string.IsNullOrEmpty(friendCode) && client is Client concreteClient)
+            if (!string.IsNullOrEmpty(productUserId) && client is Client concreteClient)
             {
                 concreteClient.ProductUserId = productUserId;
-                concreteClient.FriendCode = friendCode;
-
-                _logger.LogInformation(
-                    "Client {Name} authenticated with PUID: {Puid}, FriendCode: {FriendCode}, IP: {Ip}",
-                    name, productUserId, friendCode, clientIp);
+                concreteClient.FriendCode = friendCode ?? GenerateFallbackFriendCode(productUserId);
             }
-            else
+            else if (client is Client concreteClient2)
             {
-                _logger.LogWarning("Client {Name} connected without proper authentication, IP: {ClientIp}",
-                    name, clientIp);
-
-                // 设置默认值或特殊标识
-                if (client is Client concreteClient2)
-                {
-                    concreteClient2.ProductUserId = $"UNKNOWN_{Guid.NewGuid():N}";
-                    concreteClient2.FriendCode = $"Guest#{new Random().Next(1000, 9999)}";
-                }
+                // 未认证玩家：使用稳定的基于 IP+Name 的回退标识（不随机，不猜测他人）
+                var stableId = $"UNAUTH_{clientIp}_{name}";
+                concreteClient2.ProductUserId = $"UNAUTH_{GenerateStableDiscriminator(stableId)}";
+                concreteClient2.FriendCode = $"{System.Text.RegularExpressions.Regex.Replace(name, "[^a-zA-Z0-9]", "Player")}#{GenerateStableDiscriminator(stableId)}";
             }
 
             var id = NextId();
             client.Id = id;
-            _logger.LogTrace("Client connected with ID: {ClientId}, IP: {ClientIp}", id, clientIp);
+            _logger.LogTrace("Client connected with ID: {ClientId}, IP: {ClientIp}, PUID: {Puid}, FriendCode: {FriendCode}",
+                id, clientIp, client.ProductUserId, client.FriendCode);
             _clients.TryAdd(id, client);
 
             await _eventManager.CallAsync(new ClientConnectedEvent(connection, client));
         }
-        private async Task<(bool success, (UserAuthInfo? userInfo, string? productUserId, string? friendCode) authInfo)>
-    TryGetAuthInfoWithRetry(System.Net.IPAddress clientIp, string name, GameVersion clientVersion)
+        private string GenerateFallbackFriendCode(string productUserId)
         {
-            const int maxRetries = 2;
-
-            for (int attempt = 0; attempt <= maxRetries; attempt++)
-            {
-                try
-                {
-                    // 1. 首先尝试通过IP地址获取认证信息
-                    var userInfo = AuthCacheService.GetUserAuthByIp(clientIp);
-                    string? productUserId = null;
-
-                    if (userInfo == null)
-                    {
-                        // 2. 如果IP找不到，尝试推断PUID
-                        productUserId = AuthCacheService.InferPuidFromConnection(clientIp, name, clientVersion);
-                        if (productUserId != null)
-                        {
-                            userInfo = AuthCacheService.GetUserAuthByPuid(productUserId);
-                        }
-                    }
-                    else
-                    {
-                        productUserId = userInfo.ProductUserId;
-                    }
-
-                    // 3. 如果有认证信息，获取FriendCode
-                    if (userInfo != null && !string.IsNullOrEmpty(userInfo.AuthToken))
-                    {
-                        var friendCode = await GetFriendCodeFromBackendWithRetry(userInfo.AuthToken, attempt);
-
-                        if (!string.IsNullOrEmpty(friendCode))
-                        {
-                            return (true, (userInfo, productUserId, friendCode));
-                        }
-
-                        _logger.LogWarning("Attempt {Attempt} failed to get FriendCode for PUID: {Puid}",
-                            attempt + 1, productUserId);
-                    }
-                    else
-                    {
-                        return (false, (null, null, null));
-                    }
-
-                    if (attempt < maxRetries)
-                    {
-                        await Task.Delay(TimeSpan.FromSeconds(1 * (attempt + 1)));
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error getting auth info on attempt {Attempt}", attempt + 1);
-                    if (attempt == maxRetries) break;
-                    await Task.Delay(TimeSpan.FromSeconds(1 * (attempt + 1)));
-                }
-            }
-
-            return (false, (null, null, null));
-        }
-
-        private async Task<string?> GetFriendCodeFromBackendWithRetry(string eosToken, int attempt)
-        {
-            try
-            {
-                using var client = _httpClientFactory.CreateClient();
-                // 设置合理的超时时间
-                client.Timeout = TimeSpan.FromSeconds(10 + attempt * 5);
-
-                var request = new HttpRequestMessage(HttpMethod.Get, "https://backend.innersloth.com/api/user/username");
-                request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", eosToken);
-                request.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/vnd.api+json"));
-
-                var response = await client.SendAsync(request);
-
-                if (response.IsSuccessStatusCode)
-                {
-                    var content = await response.Content.ReadAsStringAsync();
-                    return ParseFriendCodeFromResponse(content);
-                }
-
-                _logger.LogWarning("Backend API returned status {StatusCode} on attempt {Attempt}",
-                    response.StatusCode, attempt + 1);
-            }
-            catch (TaskCanceledException) when (attempt < 2)
-            {
-                _logger.LogWarning("Backend API timeout on attempt {Attempt}", attempt + 1);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error calling backend API on attempt {Attempt}", attempt + 1);
-            }
-
-            return null;
-        }
-
-        private string? ParseFriendCodeFromResponse(string content)
-        {
-            try
-            {
-                using JsonDocument doc = JsonDocument.Parse(content);
-                var dataElement = doc.RootElement.GetProperty("data");
-                var attributesElement = dataElement.GetProperty("attributes");
-
-                var username = attributesElement.GetProperty("username").GetString();
-                var discriminator = attributesElement.GetProperty("discriminator").GetString();
-
-                if (!string.IsNullOrEmpty(username) && !string.IsNullOrEmpty(discriminator))
-                {
-                    return $"{username}#{discriminator}";
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to parse FriendCode response");
-            }
-
-            return null;
-        }
-
-        private async Task<(string productUserId, string friendCode)> GenerateStableFallbackInfo(
-            IHazelConnection connection, string name, string? existingPuid)
-        {
-            // 基于连接信息生成稳定的回退ID，避免每次都是Guest
-            var stableId = existingPuid ?? $"IP_{connection.EndPoint.Address}_{name}";
-
-            // 使用更友好的命名
-            var cleanName = System.Text.RegularExpressions.Regex.Replace(name, "[^a-zA-Z0-9]", "");
-            if (string.IsNullOrEmpty(cleanName)) cleanName = "Player";
-
-            var friendCode = $"{cleanName}#{GenerateStableDiscriminator(stableId)}";
-
-            return (stableId, friendCode);
+            using var sha = System.Security.Cryptography.SHA256.Create();
+            var hash = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(productUserId));
+            var discriminator = BitConverter.ToUInt16(hash, 0) % 10000;
+            return $"Player#{discriminator:D4}";
         }
 
         private string GenerateStableDiscriminator(string input)
@@ -349,61 +228,6 @@ namespace Impostor.Server.Net.Manager
             var hash = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(input));
             var discriminator = BitConverter.ToUInt16(hash, 0) % 10000;
             return discriminator.ToString("D4");
-        }
-        private async Task<string?> GetFriendCodeFromBackend(string eosToken)
-        {
-            var client = _httpClientFactory.CreateClient();
-
-            try
-            {
-                var request = new HttpRequestMessage(HttpMethod.Get, "https://backend.innersloth.com/api/user/username");
-                request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", eosToken);
-                request.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/vnd.api+json"));
-
-                var response = await client.SendAsync(request);
-
-                if (response.IsSuccessStatusCode)
-                {
-                    var content = await response.Content.ReadAsStringAsync();
-
-                    try
-                    {
-                        using JsonDocument doc = JsonDocument.Parse(content);
-                        var dataElement = doc.RootElement.GetProperty("data");
-                        var attributesElement = dataElement.GetProperty("attributes");
-
-                        var username = attributesElement.GetProperty("username").GetString();
-                        var discriminator = attributesElement.GetProperty("discriminator").GetString();
-
-                        if (!string.IsNullOrEmpty(username) && !string.IsNullOrEmpty(discriminator))
-                        {
-                            return $"{username}#{discriminator}";
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Failed to parse FriendCode response");
-                    }
-                }
-                else
-                {
-                    _logger.LogWarning("Failed to get FriendCode from backend. Status: {StatusCode}", response.StatusCode);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error calling backend for FriendCode");
-            }
-
-            return null;
-        }
-
-        private string GenerateFallbackFriendCode(string productUserId)
-        {
-            using var sha = System.Security.Cryptography.SHA256.Create();
-            var hash = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(productUserId));
-            var discriminator = BitConverter.ToUInt16(hash, 0) % 10000;
-            return $"Player#{discriminator:D4}";
         }
 
         public void Remove(IClient client)

@@ -10,110 +10,121 @@ using Microsoft.Extensions.Logging;
 namespace Impostor.Server.Service;
 
 /// <summary>
-/// 认证缓存服务 - 存储用户认证信息
+/// 认证缓存服务 - 存储用户认证信息。
+///
+/// 主要索引：matchmakerToken（服务端签发、客户端在握手中发回）
+/// 次要索引：IP 地址（精确匹配，不猜测）
+/// 辅助索引：FriendCode（用于 DTLS 模式）
+///
+/// 注意：已移除"使用最近认证玩家"的猜测逻辑，该逻辑是 PUID 混乱的根源。
 /// </summary>
 public static class AuthCacheService
 {
-    private static readonly ConcurrentDictionary<string, UserAuthInfo> _authCache = new();
-    private static readonly ConcurrentDictionary<string, string> _ipToPuidMapping = new();
-    private static readonly ConcurrentDictionary<string, ConcurrentQueue<HandshakeAuthCandidate>> _handshakeAuthCandidates = new();
-    private static readonly ILogger _logger = CreateLogger();
-    private static readonly TimeSpan AuthEntryTtl = TimeSpan.FromMinutes(5);
-    private static readonly TimeSpan HandshakeCandidateTtl = TimeSpan.FromMinutes(2);
+    // 主要缓存：matchmakerToken -> UserAuthInfo
+    private static readonly ConcurrentDictionary<string, UserAuthInfo> _tokenCache = new();
 
-    private static ILogger CreateLogger()
-    {
-        var loggerFactory = LoggerFactory.Create(builder =>
-        {
-            builder.AddConsole();
-        });
-        return loggerFactory.CreateLogger("AuthCacheService");
-    }
+    // 辅助缓存：IP -> matchmakerToken（精确 IP 匹配，不猜测）
+    private static readonly ConcurrentDictionary<string, string> _ipToTokenMapping = new();
+
+    // 辅助缓存：FriendCode -> matchmakerToken（用于 DTLS 模式）
+    private static readonly ConcurrentDictionary<string, string> _friendCodeToTokenMapping = new();
+
+    private static readonly ILogger _logger = LoggerFactory
+        .Create(b => b.AddConsole())
+        .CreateLogger("AuthCacheService");
+
+    private static readonly TimeSpan AuthEntryTtl = TimeSpan.FromMinutes(10);
 
     /// <summary>
-    /// 添加用户认证信息到缓存
+    /// 添加用户认证信息到缓存。
+    /// authToken 参数应为服务端签发的 matchmakerToken（SHA256 哈希，base64）。
     /// </summary>
-    public static void AddUserAuth(string productUserId, string authToken, IPAddress clientIp = null, string? playerName = null, int? clientVersion = null)
+    public static void AddUserAuth(
+        string productUserId,
+        string authToken,          // matchmakerToken（服务端签发）
+        string? eosToken = null,   // 原始 EOS JWT token（可选，仅用于后端 API 调用）
+        string? friendCode = null,
+        IPAddress? clientIp = null,
+        string? playerName = null,
+        int? clientVersion = null)
     {
-        // 主要缓存：按PUID存储
-        _authCache[productUserId] = new UserAuthInfo
+        var info = new UserAuthInfo
         {
             ProductUserId = productUserId,
             AuthToken = authToken,
+            EosToken = eosToken,
+            FriendCode = friendCode ?? string.Empty,
             Timestamp = DateTime.UtcNow,
-            ClientIp = clientIp?.ToString()
+            ClientIp = clientIp?.ToString(),
+            PlayerName = playerName,
         };
 
-        // IP映射缓存（可选，用于IPv4/IPv6映射）
+        // 主索引：matchmakerToken
+        _tokenCache[authToken] = info;
+
+        // 辅助索引：精确 IP
         if (clientIp != null)
         {
-            var ipKey = GetIpKey(clientIp);
-            _ipToPuidMapping[ipKey] = productUserId;
+            var ipKey = clientIp.ToString();
+            _ipToTokenMapping[ipKey] = authToken;
 
-            // 如果是IPv6，也记录可能的IPv4映射
-            if (clientIp.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
+            // IPv6 mapped IPv4 支持
+            if (clientIp.IsIPv4MappedToIPv6)
             {
-                TryAddIPv4Mapping(clientIp, productUserId);
+                _ipToTokenMapping[clientIp.MapToIPv4().ToString()] = authToken;
             }
         }
 
-        if (!string.IsNullOrWhiteSpace(playerName) && clientVersion.HasValue)
+        // 辅助索引：FriendCode
+        if (!string.IsNullOrEmpty(friendCode))
         {
-            var handshakeKey = GetHandshakeKey(playerName, clientVersion.Value);
-            var queue = _handshakeAuthCandidates.GetOrAdd(handshakeKey, _ => new ConcurrentQueue<HandshakeAuthCandidate>());
-            queue.Enqueue(new HandshakeAuthCandidate
-            {
-                ProductUserId = productUserId,
-                ClientIp = clientIp,
-                Timestamp = DateTime.UtcNow,
-            });
+            _friendCodeToTokenMapping[friendCode] = authToken;
         }
 
-        _logger.LogDebug("User auth cached: PUID={ProductUserId}, IP={ClientIp}",
-            productUserId, clientIp?.ToString() ?? "unknown");
+        _logger.LogDebug(
+            "Auth cached: PUID={Puid}, FriendCode={FriendCode}, IP={Ip}",
+            productUserId, friendCode ?? "(none)", clientIp?.ToString() ?? "(none)");
 
-        // 5分钟后清理过期缓存
         ScheduleCleanup();
     }
 
     /// <summary>
-    /// 通过PUID获取用户认证信息
+    /// 通过 matchmakerToken 获取用户认证信息（主要查找方式）。
     /// </summary>
-    public static UserAuthInfo? GetUserAuthByPuid(string productUserId)
+    public static UserAuthInfo? GetUserAuthByToken(string matchmakerToken)
     {
-        if (_authCache.TryGetValue(productUserId, out var userAuthInfo))
+        if (_tokenCache.TryGetValue(matchmakerToken, out var info))
         {
-            if (DateTime.UtcNow - userAuthInfo.Timestamp > AuthEntryTtl)
+            if (IsExpired(info))
             {
-                _authCache.TryRemove(productUserId, out _);
+                _tokenCache.TryRemove(matchmakerToken, out _);
                 return null;
             }
-            return userAuthInfo;
+            return info;
         }
         return null;
     }
 
     /// <summary>
-    /// 通过IP地址获取用户认证信息
+    /// 通过 IP 地址获取用户认证信息（精确匹配，不猜测）。
     /// </summary>
     public static UserAuthInfo? GetUserAuthByIp(IPAddress clientIp)
     {
         if (clientIp == null) return null;
 
-        // 尝试直接通过IP查找
-        var ipKey = GetIpKey(clientIp);
-        if (_ipToPuidMapping.TryGetValue(ipKey, out var puid))
+        var ipKey = clientIp.ToString();
+        if (_ipToTokenMapping.TryGetValue(ipKey, out var token))
         {
-            return GetUserAuthByPuid(puid);
+            return GetUserAuthByToken(token);
         }
 
-        // 如果是IPv6，尝试查找对应的IPv4映射
-        if (clientIp.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
+        // IPv6 mapped IPv4 尝试
+        if (clientIp.IsIPv4MappedToIPv6)
         {
-            var ipv4Key = GetIPv4MappingKey(clientIp);
-            if (ipv4Key != null && _ipToPuidMapping.TryGetValue(ipv4Key, out puid))
+            var ipv4Key = clientIp.MapToIPv4().ToString();
+            if (_ipToTokenMapping.TryGetValue(ipv4Key, out token))
             {
-                return GetUserAuthByPuid(puid);
+                return GetUserAuthByToken(token);
             }
         }
 
@@ -121,134 +132,37 @@ public static class AuthCacheService
     }
 
     /// <summary>
-    /// 尝试通过Token获取用户（用于TCP连接）
+    /// 通过 FriendCode 获取用户认证信息（用于 DTLS 握手模式）。
     /// </summary>
-    public static UserAuthInfo? GetUserAuthByToken(string authToken)
+    public static UserAuthInfo? GetUserAuthByFriendCode(string friendCode)
     {
-        foreach (var kvp in _authCache)
+        if (_friendCodeToTokenMapping.TryGetValue(friendCode, out var token))
         {
-            if (kvp.Value.AuthToken == authToken)
-            {
-                if (DateTime.UtcNow - kvp.Value.Timestamp > TimeSpan.FromMinutes(5))
-                {
-                    _authCache.TryRemove(kvp.Key, out _);
-                    return null;
-                }
-                return kvp.Value;
-            }
+            return GetUserAuthByToken(token);
         }
         return null;
     }
 
     /// <summary>
-    /// 从连接参数推断PUID
+    /// 通过 PUID 获取用户认证信息。
     /// </summary>
-    public static string? InferPuidFromConnection(IPAddress clientIp, string clientName, GameVersion gameVersion)
+    public static UserAuthInfo? GetUserAuthByPuid(string productUserId)
     {
-        // 0. 优先通过握手信息（昵称+版本）匹配，避免IPv4/IPv6不一致导致的误判。
-        var authByHandshake = TryConsumeHandshakeAuth(clientName, gameVersion.Value, clientIp);
-        if (authByHandshake != null)
-        {
-            _logger.LogDebug("Found PUID by handshake: {Puid} for {Name}", authByHandshake.ProductUserId, clientName);
-            return authByHandshake.ProductUserId;
-        }
-
-        // 1. 首先尝试IP映射
-        var authByIp = GetUserAuthByIp(clientIp);
-        if (authByIp != null)
-        {
-            _logger.LogDebug("Found PUID by IP: {Puid} for {Name}",
-                authByIp.ProductUserId, clientName);
-            return authByIp.ProductUserId;
-        }
-
-        // 2. 如果没有找到，可以尝试基于最近认证的玩家（最后认证的玩家）
-        var recentAuth = _authCache.Values
-            .Where(x => DateTime.UtcNow - x.Timestamp < TimeSpan.FromMinutes(1))
-            .OrderByDescending(x => x.Timestamp)
-            .FirstOrDefault();
-
-        if (recentAuth != null)
-        {
-            _logger.LogDebug("Using recent auth for {Name}: {Puid}",
-                clientName, recentAuth.ProductUserId);
-            return recentAuth.ProductUserId;
-        }
-
-        _logger.LogWarning("Could not infer PUID for {Name} from IP {Ip}",
-            clientName, clientIp);
-        return null;
+        return _tokenCache.Values
+            .FirstOrDefault(x => x.ProductUserId == productUserId && !IsExpired(x));
     }
 
-    private static string GetIpKey(IPAddress ip)
+    /// <summary>
+    /// 获取缓存统计信息（用于调试）。
+    /// </summary>
+    public static (int TokenCount, int IpMappingCount) GetCacheStats()
     {
-        return ip.ToString();
+        return (_tokenCache.Count, _ipToTokenMapping.Count);
     }
 
-    private static string GetHandshakeKey(string name, int clientVersion)
+    private static bool IsExpired(UserAuthInfo info)
     {
-        return $"{name.Trim().ToLowerInvariant()}|{clientVersion}";
-    }
-
-    private static UserAuthInfo? TryConsumeHandshakeAuth(string clientName, int clientVersion, IPAddress? udpIp)
-    {
-        var key = GetHandshakeKey(clientName, clientVersion);
-        if (!_handshakeAuthCandidates.TryGetValue(key, out var queue))
-        {
-            return null;
-        }
-
-        while (queue.TryPeek(out var candidate))
-        {
-            if (DateTime.UtcNow - candidate.Timestamp > HandshakeCandidateTtl)
-            {
-                queue.TryDequeue(out _);
-                continue;
-            }
-
-            queue.TryDequeue(out _);
-            if (udpIp != null && candidate.ClientIp != null && udpIp.Equals(candidate.ClientIp))
-            {
-                _logger.LogDebug("Matched handshake candidate with exact IP for {Name}", clientName);
-            }
-
-            return GetUserAuthByPuid(candidate.ProductUserId);
-        }
-
-        _handshakeAuthCandidates.TryRemove(key, out _);
-        return null;
-    }
-    private static void TryAddIPv4Mapping(IPAddress ipv6Address, string productUserId)
-    {
-        try
-        {
-            // 尝试从IPv6地址提取可能的IPv4映射
-            if (ipv6Address.IsIPv4MappedToIPv6)
-            {
-                var ipv4 = ipv6Address.MapToIPv4();
-                var ipv4Key = GetIpKey(ipv4);
-                _ipToPuidMapping[ipv4Key] = productUserId;
-                _logger.LogDebug("Added IPv4 mapping: {IPv4} -> {Puid}", ipv4, productUserId);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Failed to add IPv4 mapping");
-        }
-    }
-
-    private static string? GetIPv4MappingKey(IPAddress ipv6Address)
-    {
-        try
-        {
-            if (ipv6Address.IsIPv4MappedToIPv6)
-            {
-                var ipv4 = ipv6Address.MapToIPv4();
-                return GetIpKey(ipv4);
-            }
-        }
-        catch { }
-        return null;
+        return DateTime.UtcNow - info.Timestamp > AuthEntryTtl;
     }
 
     private static async void ScheduleCleanup()
@@ -257,89 +171,63 @@ public static class AuthCacheService
         CleanupExpiredCache();
     }
 
-    /// <summary>
-    /// 清理过期缓存（超过5分钟）
-    /// </summary>
     private static void CleanupExpiredCache()
     {
-        var now = DateTime.UtcNow;
-        var expiredPuid = new List<string>();
-        var expiredIpKeys = new List<string>();
+        var expiredTokens = _tokenCache
+            .Where(kv => IsExpired(kv.Value))
+            .Select(kv => kv.Key)
+            .ToList();
 
-        // 清理过期PUID
-        foreach (var kvp in _authCache)
+        foreach (var key in expiredTokens)
         {
-            if (now - kvp.Value.Timestamp > AuthEntryTtl)
-            {
-                expiredPuid.Add(kvp.Key);
-            }
+            _tokenCache.TryRemove(key, out _);
         }
 
-        foreach (var kvp in _handshakeAuthCandidates)
-        {
-            var queue = kvp.Value;
-            while (queue.TryPeek(out var candidate) && now - candidate.Timestamp > HandshakeCandidateTtl)
-            {
-                queue.TryDequeue(out _);
-            }
-
-            if (queue.IsEmpty)
-            {
-                _handshakeAuthCandidates.TryRemove(kvp.Key, out _);
-            }
-        }
-
-        // 清理过期IP映射
-        foreach (var ipKey in _ipToPuidMapping.Keys)
-        {
-            if (_ipToPuidMapping.TryGetValue(ipKey, out var puid) && expiredPuid.Contains(puid))
-            {
-                expiredIpKeys.Add(ipKey);
-            }
-        }
-
-        foreach (var key in expiredPuid)
-        {
-            _authCache.TryRemove(key, out _);
-        }
+        // 清理孤立的 IP 映射
+        var validTokens = new HashSet<string>(_tokenCache.Keys);
+        var expiredIpKeys = _ipToTokenMapping
+            .Where(kv => !validTokens.Contains(kv.Value))
+            .Select(kv => kv.Key)
+            .ToList();
 
         foreach (var key in expiredIpKeys)
         {
-            _ipToPuidMapping.TryRemove(key, out _);
+            _ipToTokenMapping.TryRemove(key, out _);
         }
 
-        if (expiredPuid.Count > 0 || expiredIpKeys.Count > 0)
+        var expiredFcKeys = _friendCodeToTokenMapping
+            .Where(kv => !validTokens.Contains(kv.Value))
+            .Select(kv => kv.Key)
+            .ToList();
+
+        foreach (var key in expiredFcKeys)
         {
-            _logger.LogDebug("Cleaned up expired cache: {PuidCount} PUIDs, {IpCount} IP mappings",
-                expiredPuid.Count, expiredIpKeys.Count);
+            _friendCodeToTokenMapping.TryRemove(key, out _);
+        }
+
+        if (expiredTokens.Count > 0)
+        {
+            _logger.LogDebug("Cleaned up {Count} expired auth entries", expiredTokens.Count);
         }
     }
-
-    /// <summary>
-    /// 获取缓存统计信息（用于调试）
-    /// </summary>
-    public static (int PuidCount, int IpMappingCount) GetCacheStats()
-    {
-        return (_authCache.Count, _ipToPuidMapping.Count);
-    }
-}
-
-internal class HandshakeAuthCandidate
-{
-    public string ProductUserId { get; set; } = string.Empty;
-
-    public IPAddress? ClientIp { get; set; }
-
-    public DateTime Timestamp { get; set; }
 }
 
 public class UserAuthInfo
 {
     public string ProductUserId { get; set; } = string.Empty;
 
+    /// <summary>服务端签发的 matchmakerToken（SHA256 base64）</summary>
     public string AuthToken { get; set; } = string.Empty;
+
+    /// <summary>原始 EOS JWT token（用于调用 Innersloth 后端 API）</summary>
+    public string? EosToken { get; set; }
+
+    /// <summary>玩家的 FriendCode（格式：Name#XXXX）</summary>
+    public string FriendCode { get; set; } = string.Empty;
 
     public DateTime Timestamp { get; set; } = DateTime.UtcNow;
 
     public string? ClientIp { get; set; }
+
+    public string? PlayerName { get; set; }
 }

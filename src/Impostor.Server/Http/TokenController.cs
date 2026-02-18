@@ -1,7 +1,8 @@
 using System;
+using System.Collections.Concurrent;
 using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
-using System.Net;
+using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -18,14 +19,31 @@ namespace Impostor.Server.Http;
 public sealed class TokenController : ControllerBase
 {
     private readonly ILogger<TokenController> _logger;
+    private readonly IHttpClientFactory _httpClientFactory;
 
-    public TokenController(ILogger<TokenController> logger)
+    // 缓存 FriendCode，减少对后端的不必要请求
+    private static readonly ConcurrentDictionary<string, CachedFriendCode> FriendCodeCache = new();
+    private static readonly TimeSpan FriendCodeCacheDuration = TimeSpan.FromMinutes(10);
+
+    private class CachedFriendCode
+    {
+        public string? FriendCode { get; set; }
+        public DateTime ExpiresAt { get; set; }
+    }
+
+    public TokenController(ILogger<TokenController> logger, IHttpClientFactory httpClientFactory)
     {
         _logger = logger;
+        _httpClientFactory = httpClientFactory;
     }
 
     /// <summary>
     /// Get an authentication token.
+    /// The client sends EOS Bearer token in Authorization header.
+    /// We validate it, fetch the FriendCode from Innersloth backend,
+    /// then return a signed matchmakerToken (base64) which the client
+    /// will embed in the UDP handshake. This is the only reliable way
+    /// to associate a UDP connection with an authenticated identity.
     /// </summary>
     [HttpPost]
     public async Task<IActionResult> GetToken([FromBody] TokenRequest request, [FromHeader] string authorization)
@@ -51,7 +69,7 @@ public sealed class TokenController : ControllerBase
 
             var jwtToken = tokenHandler.ReadJwtToken(eosToken);
 
-            // 从 JWT 中提取用户信息
+            // 从 JWT 中提取 PUID
             var productUserId = jwtToken.Claims.FirstOrDefault(c => c.Type == "sub" || c.Type == "puid")?.Value;
 
             if (string.IsNullOrEmpty(productUserId))
@@ -63,22 +81,44 @@ public sealed class TokenController : ControllerBase
             // 获取客户端IP地址
             var clientIp = HttpContext.Connection.RemoteIpAddress;
 
-            // 存储用户认证信息到缓存，包含IP地址
-            AuthCacheService.AddUserAuth(productUserId, eosToken, clientIp, request.Username, request.ClientVersion);
+            // 从 Innersloth 后端获取 FriendCode（使用缓存）
+            var friendCode = await GetFriendCodeFromBackendAsync(eosToken, productUserId);
+
+            if (string.IsNullOrEmpty(friendCode))
+            {
+                // 生成稳定的回退 FriendCode（基于 PUID 哈希，确保同一玩家每次相同）
+                friendCode = GenerateFallbackFriendCode(productUserId);
+                _logger.LogWarning(
+                    "Could not fetch FriendCode from backend for PUID={Puid}, using fallback: {FriendCode}",
+                    productUserId, friendCode);
+            }
+
+            // 生成 matchmakerToken（这是客户端握手时会发送回来的 token）
+            var matchmakerToken = GenerateMatchmakerToken(productUserId, request.ClientVersion);
+
+            // 存储认证信息到缓存，key 为 matchmakerToken（最重要的索引）
+            AuthCacheService.AddUserAuth(
+                productUserId: productUserId,
+                authToken: matchmakerToken,   // 存 matchmakerToken 作为查找 key
+                eosToken: eosToken,
+                friendCode: friendCode,
+                clientIp: clientIp,
+                playerName: request.Username,
+                clientVersion: request.ClientVersion);
 
             _logger.LogInformation(
-                "SUCCESS: User authenticated and cached: PUID={ProductUserId}, IP={ClientIp}",
-                productUserId, clientIp);
+                "User authenticated: PUID={Puid}, FriendCode={FriendCode}, IP={Ip}",
+                productUserId, friendCode, clientIp);
 
             var token = new Token
             {
                 Content = new TokenPayload
                 {
                     ProductUserId = productUserId,
-                    FriendCode = null, // 不再在token中返回FriendCode
+                    FriendCode = friendCode,
                     ClientVersion = request.ClientVersion
                 },
-                Hash = GenerateTokenHash(productUserId, request.ClientVersion.ToString())
+                Hash = matchmakerToken  // Hash 字段复用为 matchmakerToken，客户端会在握手时原样发送
             };
 
             var serialized = JsonSerializer.SerializeToUtf8Bytes(token);
@@ -91,17 +131,104 @@ public sealed class TokenController : ControllerBase
         }
     }
 
-    private string GenerateTokenHash(string productUserId, string clientVersion)
+    private async Task<string?> GetFriendCodeFromBackendAsync(string eosToken, string productUserId)
     {
-        var input = $"{productUserId}:{clientVersion}:{DateTime.UtcNow:yyyyMMdd}";
-        using var sha = System.Security.Cryptography.SHA256.Create();
-        var hash = sha.ComputeHash(Encoding.UTF8.GetBytes(input));
-        return Convert.ToBase64String(hash).Replace("=", "").Substring(0, 16);
+        // 1. 尝试从缓存获取
+        if (FriendCodeCache.TryGetValue(productUserId, out var cached))
+        {
+            if (cached.ExpiresAt > DateTime.UtcNow)
+            {
+                return cached.FriendCode; // 可能为 null（之前获取失败也缓存）
+            }
+            // 过期则移除
+            FriendCodeCache.TryRemove(productUserId, out _);
+        }
+
+        // 2. 缓存未命中或过期，请求后端
+        try
+        {
+            using var client = _httpClientFactory.CreateClient();
+            client.Timeout = TimeSpan.FromSeconds(15);
+
+            var request = new HttpRequestMessage(HttpMethod.Get, "https://backend.innersloth.com/api/user/username");
+            request.Headers.Add("Authorization", "Bearer " + eosToken);
+            request.Headers.Add("User-Agent", "UnityPlayer/2022.3.44f1 (UnityWebRequest/1.0, libcurl/7.84.0-DEV)");
+            request.Headers.Add("X-Unity-Version", "2022.3.44f1");
+            // 注意：GET 请求无需 Content-Type 头，移除以免引发异常
+
+            var response = await client.SendAsync(request);
+            if (response.IsSuccessStatusCode)
+            {
+                var content = await response.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(content);
+
+                // 响应格式：{ "data": { "attributes": { "username": "...", "discriminator": "..." } } }
+                // 或者直接：{ "username": "...", "discriminator": "..." }
+                JsonElement attrElem;
+                if (doc.RootElement.TryGetProperty("data", out var dataElem) &&
+                    dataElem.TryGetProperty("attributes", out attrElem))
+                {
+                    // JSON:API 格式
+                }
+                else
+                {
+                    attrElem = doc.RootElement;
+                }
+
+                var username = attrElem.TryGetProperty("username", out var u) ? u.GetString() : null;
+                var discriminator = attrElem.TryGetProperty("discriminator", out var d) ? d.GetString() : null;
+
+                if (!string.IsNullOrEmpty(username) && !string.IsNullOrEmpty(discriminator))
+                {
+                    var friendCode = $"{username}#{discriminator}";
+                    // 存入缓存
+                    FriendCodeCache[productUserId] = new CachedFriendCode
+                    {
+                        FriendCode = friendCode,
+                        ExpiresAt = DateTime.UtcNow.Add(FriendCodeCacheDuration)
+                    };
+                    return friendCode;
+                }
+            }
+            else
+            {
+                _logger.LogWarning("Backend returned {Status} when fetching FriendCode for PUID {Puid}", response.StatusCode, productUserId);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Exception while fetching FriendCode from backend for PUID {Puid}", productUserId);
+        }
+
+        // 3. 失败时缓存一个 null 值，避免频繁重试
+        FriendCodeCache[productUserId] = new CachedFriendCode
+        {
+            FriendCode = null,
+            ExpiresAt = DateTime.UtcNow.Add(FriendCodeCacheDuration)
+        };
+        return null;
     }
 
-    /// <summary>
-    /// Body of the token request endpoint.
-    /// </summary>
+    private string GenerateMatchmakerToken(string productUserId, int clientVersion)
+    {
+        // 生成一个基于 PUID + 时间 + 随机数的不可预测 token
+        // 客户端会在 UDP 握手中原样发回，服务端通过此 token 找到对应的认证信息
+        var random = System.Security.Cryptography.RandomNumberGenerator.GetBytes(16);
+        var input = $"{productUserId}:{clientVersion}:{DateTime.UtcNow:yyyyMMddHHmm}:{Convert.ToBase64String(random)}";
+        using var sha = System.Security.Cryptography.SHA256.Create();
+        var hash = sha.ComputeHash(Encoding.UTF8.GetBytes(input));
+        return Convert.ToBase64String(hash);
+    }
+
+    private string GenerateFallbackFriendCode(string productUserId)
+    {
+        using var sha = System.Security.Cryptography.SHA256.Create();
+        var hash = sha.ComputeHash(Encoding.UTF8.GetBytes(productUserId));
+        var discriminator = BitConverter.ToUInt16(hash, 0) % 10000;
+        return $"Player#{discriminator:D4}";
+    }
+
+    /// <summary>Body of the token request endpoint.</summary>
     public class TokenRequest
     {
         [JsonPropertyName("Puid")]
@@ -117,21 +244,18 @@ public sealed class TokenController : ControllerBase
         public required Language Language { get; init; }
     }
 
-    /// <summary>
-    /// Token that is returned to the user with a "signature".
-    /// </summary>
+    /// <summary>Token that is returned to the user.</summary>
     public sealed class Token
     {
         [JsonPropertyName("Content")]
         public required TokenPayload Content { get; init; }
 
+        /// <summary>复用为 matchmakerToken，客户端握手时会原样发回。</summary>
         [JsonPropertyName("Hash")]
         public required string Hash { get; init; }
     }
 
-    /// <summary>
-    /// Actual token contents.
-    /// </summary>
+    /// <summary>Actual token contents.</summary>
     public sealed class TokenPayload
     {
         private static readonly DateTime DefaultExpiryDate = new(2012, 12, 21);
