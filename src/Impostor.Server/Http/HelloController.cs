@@ -1,3 +1,5 @@
+using System;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -20,6 +22,9 @@ public sealed class HelloController : ControllerBase
     private readonly ILogger<HelloController> _logger;
     private readonly IGameManager _gameManager;
     private static readonly object _fileLock = new object();
+    private static DateTime _lastCpuTimeCheck = DateTime.UtcNow;
+    private static TimeSpan _lastCpuTime = Process.GetCurrentProcess().TotalProcessorTime;
+    private static readonly object _cpuLock = new object();
 
     public HelloController(ILogger<HelloController> logger, IGameManager gameManager)
     {
@@ -46,6 +51,30 @@ public sealed class HelloController : ControllerBase
 
         var filePath = Path.Combine(Directory.GetCurrentDirectory(), "Page", "index.html");
         var directoryPath = Path.GetDirectoryName(filePath);
+
+        var process = Process.GetCurrentProcess();
+        double cpuUsage = 0;
+
+        lock (_cpuLock)
+        {
+            var currentCpuTime = process.TotalProcessorTime;
+            var currentTime = DateTime.UtcNow;
+            var cpuUsedMs = (currentCpuTime - _lastCpuTime).TotalMilliseconds;
+            var totalMsPassed = (currentTime - _lastCpuTimeCheck).TotalMilliseconds;
+
+            if (totalMsPassed > 0)
+            {
+                cpuUsage = (cpuUsedMs / (Environment.ProcessorCount * totalMsPassed)) * 100;
+                if (cpuUsage > 100) cpuUsage = 100;
+            }
+
+            _lastCpuTime = currentCpuTime;
+            _lastCpuTimeCheck = currentTime;
+        }
+
+        var memoryMB = process.WorkingSet64 / 1024 / 1024; // 转换为 MB
+        var uptime = DateTime.Now - process.StartTime;
+        string uptimeString = $"{(int)uptime.TotalDays}d {uptime.Hours}h {uptime.Minutes}m";
 
         try
         {
