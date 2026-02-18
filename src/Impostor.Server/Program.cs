@@ -33,7 +33,6 @@ using Microsoft.Extensions.ObjectPool;
 using Serilog;
 using Serilog.Events;
 using static Impostor.Server.Http.AdminController;
-using Impostor.Server.VoiceChat.Interstellar;
 
 namespace Impostor.Server
 {
@@ -307,10 +306,6 @@ namespace Impostor.Server
                     builder.ConfigureServices(services =>
                     {
                         services.AddControllers();
-                        if (httpConfig.EnableVoiceChatServer)
-                        {
-                            services.AddSingleton<VoiceRoomManager>();
-                        }
                     });
 
                     builder.Configure(app =>
@@ -322,12 +317,6 @@ namespace Impostor.Server
                             {
                                 httpStartup.ConfigureWebApplication(app);
                             }
-                        }
-
-                        if (httpConfig.EnableVoiceChatServer)
-                        {
-                            app.UseWebSockets();
-                            app.UseMiddleware<VoiceWebSocketMiddleware>();
                         }
 
                         app.UseRouting();
