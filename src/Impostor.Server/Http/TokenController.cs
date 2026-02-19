@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
@@ -78,8 +79,32 @@ public sealed class TokenController : ControllerBase
                 return Unauthorized(new { error = "Invalid token content" });
             }
 
-            // 获取客户端IP地址
-            var clientIp = HttpContext.Connection.RemoteIpAddress;
+            // 获取客户端真实 IP 地址：
+            // 优先使用 X-Real-IP / X-Forwarded-For 头（适用于 Nginx/HAProxy 反向代理场景）
+            // 这样 HTTP 认证时记录的 IP 与后续 UDP 连接的 IP 能正确匹配。
+            System.Net.IPAddress? clientIp = null;
+            var xRealIp = HttpContext.Request.Headers["X-Real-IP"].FirstOrDefault();
+            var xForwardedFor = HttpContext.Request.Headers["X-Forwarded-For"].FirstOrDefault();
+            if (!string.IsNullOrEmpty(xRealIp) && System.Net.IPAddress.TryParse(xRealIp, out var realIp))
+            {
+                clientIp = realIp;
+            }
+            else if (!string.IsNullOrEmpty(xForwardedFor))
+            {
+                // X-Forwarded-For 可能包含多个 IP，取第一个（最原始客户端 IP）
+                var firstIp = xForwardedFor.Split(",")[0].Trim();
+                if (System.Net.IPAddress.TryParse(firstIp, out var forwardedIp))
+                {
+                    clientIp = forwardedIp;
+                }
+            }
+            // 回退到直连 IP
+            clientIp ??= HttpContext.Connection.RemoteIpAddress;
+            // 如果是 IPv4-mapped IPv6 地址（::ffff:1.2.3.4），映射为纯 IPv4
+            if (clientIp != null && clientIp.IsIPv4MappedToIPv6)
+            {
+                clientIp = clientIp.MapToIPv4();
+            }
 
             // 从 Innersloth 后端获取 FriendCode（使用缓存）
             var friendCode = await GetFriendCodeFromBackendAsync(eosToken, productUserId);
@@ -154,7 +179,8 @@ public sealed class TokenController : ControllerBase
             request.Headers.Add("Authorization", "Bearer " + eosToken);
             request.Headers.Add("User-Agent", "UnityPlayer/2022.3.44f1 (UnityWebRequest/1.0, libcurl/7.84.0-DEV)");
             request.Headers.Add("X-Unity-Version", "2022.3.44f1");
-            // 注意：GET 请求无需 Content-Type 头，移除以免引发异常
+            // Content-Type 头告知 Innersloth 后端返回 JSON:API 格式（与 Among Us 客户端行为一致）
+            request.Headers.TryAddWithoutValidation("Accept", "application/vnd.api+json");
 
             var response = await client.SendAsync(request);
             if (response.IsSuccessStatusCode)
@@ -162,16 +188,22 @@ public sealed class TokenController : ControllerBase
                 var content = await response.Content.ReadAsStringAsync();
                 using var doc = JsonDocument.Parse(content);
 
-                // 响应格式：{ "data": { "attributes": { "username": "...", "discriminator": "..." } } }
-                // 或者直接：{ "username": "...", "discriminator": "..." }
+                // Innersloth 后端返回 JSON:API 格式：
+                //   { "data": { "attributes": { "username": "...", "discriminator": "..." } } }
+                // 也兼容扁平格式：
+                //   { "username": "...", "discriminator": "..." }
                 JsonElement attrElem;
-                if (doc.RootElement.TryGetProperty("data", out var dataElem) &&
-                    dataElem.TryGetProperty("attributes", out attrElem))
+                if (doc.RootElement.TryGetProperty("data", out var dataElem))
                 {
-                    // JSON:API 格式
+                    // JSON:API 格式 - 取 attributes 子对象
+                    if (!dataElem.TryGetProperty("attributes", out attrElem))
+                    {
+                        attrElem = dataElem;
+                    }
                 }
                 else
                 {
+                    // 扁平格式
                     attrElem = doc.RootElement;
                 }
 
@@ -187,8 +219,11 @@ public sealed class TokenController : ControllerBase
                         FriendCode = friendCode,
                         ExpiresAt = DateTime.UtcNow.Add(FriendCodeCacheDuration)
                     };
+                    _logger.LogInformation("FriendCode fetched from backend: PUID={Puid}, FriendCode={FriendCode}", productUserId, friendCode);
                     return friendCode;
                 }
+
+                _logger.LogWarning("Backend response missing username/discriminator for PUID={Puid}. Response: {Content}", productUserId, content);
             }
             else
             {
