@@ -1,13 +1,9 @@
-# Impostor
+# Next-Impostor
 
 [![Discord](https://img.shields.io/badge/Discord-chat-blue?style=flat-square)](https://discord.gg/Mk3w6Tb)
-[![CI](https://github.com/Impostor/Impostor/workflows/CI/badge.svg)](https://github.com/Impostor/Impostor/actions)
+[![QQ](https://qq-web.cdn-go.cn/im.qq.com/d6f84f11/assets/logo-pc-fUpXB4tk.svg)](https://qm.qq.com/q/gJ8Zqa3p72)
 
-Impostor is the first working **Among Us** private server, written in C#.
-
-As Among Us is actively updated, you may want to use the latest build from the master branch if you want to play on the latest version of Among Us that supported by Impostor.
-
-If you want to play on an older version of Among Us, you can download old releases from [here](https://github.com/Impostor/Impostor/releases/), however these versions are less supported.
+Next-Impostor is an enhanced private server for **Among Us**, written in C#. Since Among Us is constantly being updated, if you want to play on the latest version supported by Impostor, you may need to use the latest build from the main branch. If you want to play on older versions of Among Us, you can download older versions, but these are less supported.
 
 ## Features
 
