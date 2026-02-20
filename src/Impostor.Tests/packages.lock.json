@@ -44,22 +44,6 @@
         "resolved": "2.5.6",
         "contentHash": "CW6uhMXNaQQNMSG1IWhHkBT+V5eqHqn7MP0zfNMhU9wS/sgKX7FGL3rzoaUgt26wkY3bpf7pDVw3IjXhwfiP4w=="
       },
-      "Impostor.Hazel": {
-        "type": "Transitive",
-        "resolved": "1.0.0",
-        "contentHash": "FgVKuIWK+o6Q+wOPFoZZTeoSuVh4giAhrS8Zvs6O0++Bg8RxH4Lw51uSwnexLiwosXveUCIXICzgGHmRyguVSA==",
-        "dependencies": {
-          "Impostor.Hazel.Abstractions": "1.0.0",
-          "Microsoft.Extensions.DependencyInjection.Abstractions": "7.0.0",
-          "Microsoft.Extensions.ObjectPool": "7.0.1",
-          "Serilog": "2.12.0"
-        }
-      },
-      "Impostor.Hazel.Abstractions": {
-        "type": "Transitive",
-        "resolved": "1.0.0",
-        "contentHash": "x56AEsY5fKU2Z5O7ZrzEqKfr62kq/C05Aevcciwz5yMfOQlpwuFI1awgNGJsoe+bcx+XnFc3+l+eadtY72aZsg=="
-      },
       "Microsoft.AspNetCore.Http.Abstractions": {
         "type": "Transitive",
         "resolved": "2.2.0",
@@ -619,18 +603,30 @@
       "impostor.api": {
         "type": "Project",
         "dependencies": {
-          "Impostor.Hazel.Abstractions": "[1.0.0, )",
+          "Impostor.Hazel.Abstractions": "[1.0.0-dev, )",
           "Microsoft.AspNetCore.Http.Abstractions": "[2.2.0, )",
           "Microsoft.Extensions.Hosting.Abstractions": "[8.0.0, )",
           "Microsoft.Extensions.Logging.Abstractions": "[8.0.0, )",
           "Serilog": "[4.2.0, )"
         }
       },
+      "Impostor.Hazel": {
+        "type": "Project",
+        "dependencies": {
+          "Impostor.Hazel.Abstractions": "[1.0.0-dev, )",
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "[7.0.0, )",
+          "Microsoft.Extensions.ObjectPool": "[7.0.1, )",
+          "Serilog": "[2.12.0, )"
+        }
+      },
+      "impostor.hazel.abstractions": {
+        "type": "Project"
+      },
       "impostor.server": {
         "type": "Project",
         "dependencies": {
           "Impostor.Api": "[5.2.0.2-dev, )",
-          "Impostor.Hazel": "[1.0.0, )",
+          "Impostor.Hazel": "[1.0.0-dev, )",
           "Microsoft.Extensions.FileSystemGlobbing": "[8.0.0, )",
           "Microsoft.Extensions.Hosting": "[8.0.0, )",
           "Microsoft.Extensions.ObjectPool": "[8.0.1, )",

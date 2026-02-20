@@ -2,18 +2,6 @@
   "version": 1,
   "dependencies": {
     "net8.0": {
-      "Impostor.Hazel": {
-        "type": "Direct",
-        "requested": "[1.0.0, )",
-        "resolved": "1.0.0",
-        "contentHash": "FgVKuIWK+o6Q+wOPFoZZTeoSuVh4giAhrS8Zvs6O0++Bg8RxH4Lw51uSwnexLiwosXveUCIXICzgGHmRyguVSA==",
-        "dependencies": {
-          "Impostor.Hazel.Abstractions": "1.0.0",
-          "Microsoft.Extensions.DependencyInjection.Abstractions": "7.0.0",
-          "Microsoft.Extensions.ObjectPool": "7.0.1",
-          "Serilog": "2.12.0"
-        }
-      },
       "Microsoft.Extensions.FileSystemGlobbing": {
         "type": "Direct",
         "requested": "[8.0.0, )",
@@ -55,12 +43,6 @@
         "requested": "[8.0.1, )",
         "resolved": "8.0.1",
         "contentHash": "X21b8D6z58EG34OMLH955750mFaEaGs5xLGe9Vyi3059Cgb3sk+p2k/JlQXaieEBRrk+SVlFzDei3Q6PdVzJOA=="
-      },
-      "Microsoft.NET.ILLink.Tasks": {
-        "type": "Direct",
-        "requested": "[8.0.24, )",
-        "resolved": "8.0.24",
-        "contentHash": "1gnadp//+DoGJvV4AFdzPqYPxkypaWYjYMCr7KAacV0iadsHz1nU+rrkoxBCna4FCmeKH49CisEwa7g94/MbEg=="
       },
       "Newtonsoft.Json": {
         "type": "Direct",
@@ -125,11 +107,6 @@
           "Microsoft.IdentityModel.JsonWebTokens": "6.35.0",
           "Microsoft.IdentityModel.Tokens": "6.35.0"
         }
-      },
-      "Impostor.Hazel.Abstractions": {
-        "type": "Transitive",
-        "resolved": "1.0.0",
-        "contentHash": "x56AEsY5fKU2Z5O7ZrzEqKfr62kq/C05Aevcciwz5yMfOQlpwuFI1awgNGJsoe+bcx+XnFc3+l+eadtY72aZsg=="
       },
       "Microsoft.AspNetCore.Http.Abstractions": {
         "type": "Transitive",
@@ -518,12 +495,24 @@
       "impostor.api": {
         "type": "Project",
         "dependencies": {
-          "Impostor.Hazel.Abstractions": "[1.0.0, )",
+          "Impostor.Hazel.Abstractions": "[1.0.0-dev, )",
           "Microsoft.AspNetCore.Http.Abstractions": "[2.2.0, )",
           "Microsoft.Extensions.Hosting.Abstractions": "[8.0.0, )",
           "Microsoft.Extensions.Logging.Abstractions": "[8.0.0, )",
           "Serilog": "[4.2.0, )"
         }
+      },
+      "Impostor.Hazel": {
+        "type": "Project",
+        "dependencies": {
+          "Impostor.Hazel.Abstractions": "[1.0.0-dev, )",
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "[7.0.0, )",
+          "Microsoft.Extensions.ObjectPool": "[7.0.1, )",
+          "Serilog": "[2.12.0, )"
+        }
+      },
+      "impostor.hazel.abstractions": {
+        "type": "Project"
       }
     },
     "net8.0/linux-arm": {

@@ -1,3 +1,4 @@
+using System;
 using Impostor.Api.Innersloth;
 
 namespace Impostor.Api.Net.Messages.C2S
@@ -7,7 +8,7 @@ namespace Impostor.Api.Net.Messages.C2S
         /// <summary>
         /// 解析 UDP 握手包。
         ///
-        /// 实际 UDP（非 DTLS）握手包格式（参考 Among Us 客户端及其他项目实现）：
+        /// 实际 UDP（非 DTLS）握手包格式（参考 Among Us 客户端及 preview 项目实现）：
         ///   GameVersion (4B)
         ///   Name (string)
         ///   [V1+] LastNonce / uint32 (4B) — 不使用，忽略
@@ -48,17 +49,21 @@ namespace Impostor.Api.Net.Messages.C2S
                 chatMode = QuickChatModes.FreeChatOrQuickChat;
             }
 
-            // V3+: 平台数据 (message) + 客户端自报的 ProductUserId (string) + CrossplayFlags (uint32)
-            // 注意：顺序是 string 在前，uint32 在后 —— 与之前版本中把 int32 放在 message 后的写法不同！
+            // V3+: 平台数据 (message) + ProductUserId/matchmakerToken (string) + CrossplayFlags (uint32)
+            matchmakerToken = null;
+            friendCode = null;
             if (clientVersion >= Version.V3)
             {
                 using var platformReader = reader.ReadMessage();
                 platformSpecificData = new PlatformSpecificData(platformReader);
 
-                // 客户端自报的 ProductUserId 字符串（我们从 HTTP 认证缓存中获取，此处跳过）
+                // 读取 ProductUserId 字符串位置的数据：
+                // - 标准客户端：此处为 ProductUserId（跳过）
+                // - 自定义客户端：此处可能携带 matchmakerToken（base64 JSON，以 'ey' 开头）
+                string? productUserIdOrToken = null;
                 if (reader.Position < reader.Length)
                 {
-                    try { reader.ReadString(); } catch { /* 忽略 */ }
+                    try { productUserIdOrToken = reader.ReadString(); } catch { /* 忽略 */ }
                 }
 
                 // CrossplayFlags (uint32)
@@ -66,16 +71,31 @@ namespace Impostor.Api.Net.Messages.C2S
                 {
                     try { reader.ReadUInt32(); } catch { /* 忽略 */ }
                 }
+
+                // 尝试从剩余字节读取附加的 matchmakerToken 和 friendCode（自定义客户端扩展）
+                if (reader.Position < reader.Length)
+                {
+                    try { matchmakerToken = reader.ReadString(); } catch { /* 忽略 */ }
+                }
+                if (reader.Position < reader.Length)
+                {
+                    try { friendCode = reader.ReadString(); } catch { /* 忽略 */ }
+                }
+
+                // 如果附加字段为空，检查 productUserIdOrToken 是否为 base64 JSON token
+                // （自定义客户端可能把 matchmakerToken 放在 ProductUserId 位置）
+                if (matchmakerToken == null
+                    && productUserIdOrToken != null
+                    && productUserIdOrToken.Length > 10
+                    && productUserIdOrToken.StartsWith("ey", System.StringComparison.Ordinal))
+                {
+                    matchmakerToken = productUserIdOrToken;
+                }
             }
             else
             {
                 platformSpecificData = null;
             }
-
-            // UDP 握手包中不含 matchmakerToken / friendCode，
-            // 认证完全依赖 HTTP 端点缓存 + IP 匹配（见 ClientManager.RegisterConnectionAsync）。
-            matchmakerToken = null;
-            friendCode = null;
         }
 
         private static class Version
