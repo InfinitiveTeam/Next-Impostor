@@ -1,14 +1,19 @@
+using System;
 using System.Diagnostics.CodeAnalysis;
+using System.Net.Http;
 using System.Reflection;
 using System.Threading.Tasks;
 using Impostor.Api;
 using Impostor.Api.Innersloth;
 using Impostor.Api.Innersloth.Customization;
 using Impostor.Api.Net.Inner;
+using System.Net.Http.Json;
 using Impostor.Api.Net.Inner.Objects;
 using Impostor.Api.Net.Inner.Objects.Components;
 using Impostor.Api.Net.Messages.Rpcs;
 using Impostor.Server.Events.Player;
+using Impostor.Server.Http;
+using Microsoft.Extensions.Logging;
 
 namespace Impostor.Server.Net.Inner.Objects
 {
@@ -20,6 +25,33 @@ namespace Impostor.Server.Net.Inner.Objects
 
         IInnerPlayerInfo? IInnerPlayerControl.PlayerInfo => PlayerInfo;
 
+        public async Task<string> GetPlayerTitleAsync(string friendcode)
+        {
+            try
+            {
+                using var httpClient = new HttpClient();
+                httpClient.Timeout = TimeSpan.FromSeconds(5);
+
+                var response = await httpClient.GetAsync($"{Program._serverUrl}/api/title/get/{friendcode}");
+
+                if (response.IsSuccessStatusCode)
+                {
+                    var result = await response.Content.ReadFromJsonAsync<TitleInfoResponse>();
+                    if (result.Success && !string.IsNullOrEmpty(result.Title))
+                    {
+                        _logger.LogInformation($"玩家：{friendcode}的头衔为{result.Title}");
+                        return result.Title;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"获取玩家头衔失败: {friendcode}");
+            }
+
+            return null;
+        }
+
         public async ValueTask SetNameAsync(string name)
         {
             if (PlayerInfo == null)
@@ -27,10 +59,12 @@ namespace Impostor.Server.Net.Inner.Objects
                 throw new ImpostorProtocolException("Cannot set name, PlayerInfo is null");
             }
 
-            PlayerInfo.CurrentOutfit.PlayerName = name;
+            var title = await GetPlayerTitleAsync(PlayerInfo.FriendCode);
+            var titleName = $"[{title}] {name}";
+            PlayerInfo.CurrentOutfit.PlayerName = titleName;
 
             using var writer = Game.StartRpc(NetId, RpcCalls.SetName);
-            Rpc06SetName.Serialize(writer, PlayerInfo.NetId, name);
+            Rpc06SetName.Serialize(writer, PlayerInfo.NetId, titleName);
             await Game.FinishRpcAsync(writer);
         }
 
