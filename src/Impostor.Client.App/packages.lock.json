@@ -22,11 +22,6 @@
           "Serilog": "2.12.0"
         }
       },
-      "Impostor.Hazel.Abstractions": {
-        "type": "Transitive",
-        "resolved": "1.0.0",
-        "contentHash": "x56AEsY5fKU2Z5O7ZrzEqKfr62kq/C05Aevcciwz5yMfOQlpwuFI1awgNGJsoe+bcx+XnFc3+l+eadtY72aZsg=="
-      },
       "Microsoft.AspNetCore.Http.Abstractions": {
         "type": "Transitive",
         "resolved": "2.2.0",
@@ -132,7 +127,7 @@
       "impostor.api": {
         "type": "Project",
         "dependencies": {
-          "Impostor.Hazel.Abstractions": "[1.0.0, )",
+          "Impostor.Hazel.Abstractions": "[1.0.0-dev, )",
           "Microsoft.AspNetCore.Http.Abstractions": "[2.2.0, )",
           "Microsoft.Extensions.Hosting.Abstractions": "[8.0.0, )",
           "Microsoft.Extensions.Logging.Abstractions": "[8.0.0, )",
@@ -142,9 +137,12 @@
       "impostor.client": {
         "type": "Project",
         "dependencies": {
-          "Impostor.Api": "[5.2.0.1-dev, )",
+          "Impostor.Api": "[5.2.0.2-dev, )",
           "Impostor.Hazel": "[1.0.0, )"
         }
+      },
+      "impostor.hazel.abstractions": {
+        "type": "Project"
       }
     }
   }

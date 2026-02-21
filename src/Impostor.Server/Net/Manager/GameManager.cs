@@ -24,7 +24,7 @@ namespace Impostor.Server.Net.Manager
     internal class GameManager : IGameManager
     {
         private readonly ILogger<GameManager> _logger;
-        private readonly IPEndPoint _publicIp;
+        private readonly ServerConfig _serverConfig;
         private readonly ConcurrentDictionary<int, Game> _games;
         private readonly CompatibilityConfig _compatibilityConfig;
         private readonly IServiceProvider _serviceProvider;
@@ -46,7 +46,7 @@ namespace Impostor.Server.Net.Manager
             _serviceProvider = serviceProvider;
             _eventManager = eventManager;
             _gameCodeFactory = gameCodeFactory;
-            _publicIp = new IPEndPoint(IPAddress.Parse(config.Value.ResolvePublicIp()), config.Value.PublicPort);
+            _serverConfig = config.Value;
             _games = new ConcurrentDictionary<int, Game>();
             _compatibilityConfig = compatibilityConfig.Value;
             _compatibilityManager = compatibilityManager;
@@ -129,7 +129,7 @@ namespace Impostor.Server.Net.Manager
         private async ValueTask<(bool Success, Game? Game)> TryCreateAsync(IGameOptions options, GameFilterOptions filterOptions, IClient? owner, GameCode? desiredGameCode = null)
         {
             var gameCode = desiredGameCode ?? _gameCodeFactory.Create();
-            var game = ActivatorUtilities.CreateInstance<Game>(_serviceProvider, _publicIp, gameCode, options, filterOptions);
+            var game = ActivatorUtilities.CreateInstance<Game>(_serviceProvider, GetCurrentPublicEndPoint, gameCode, options, filterOptions);
 
             if (!_games.TryAdd(gameCode, game))
             {
@@ -141,6 +141,13 @@ namespace Impostor.Server.Net.Manager
             await _eventManager.CallAsync(new GameCreatedEvent(game, owner));
 
             return (true, game);
+        }
+
+
+        private IPEndPoint GetCurrentPublicEndPoint()
+        {
+            var resolved = _serverConfig.ResolvePublicIp();
+            return new IPEndPoint(IPAddress.Parse(resolved), _serverConfig.PublicPort);
         }
 
         internal async ValueTask OnClientDisconnectAsync(IClient client)

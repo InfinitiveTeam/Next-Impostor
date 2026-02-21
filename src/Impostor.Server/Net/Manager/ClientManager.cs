@@ -109,14 +109,7 @@ namespace Impostor.Server.Net.Manager
 
             if (clientVersion.HasDisableServerAuthorityFlag)
             {
-                if (!_compatibilityConfig.AllowHostAuthority)
-                {
-                    _logger.LogInformation("Player {Name} kicked because they requested host authority.", name);
-                    await connection.CustomDisconnectAsync(DisconnectReason.Custom, DisconnectMessages.HostAuthorityUnsupported);
-                    return;
-                }
-
-                _logger.LogInformation("Player {Name} connected with server authority disabled, please mention that this mode is in use when asking for support.", name);
+                _logger.LogInformation("Player {Name} connected with server authority disabled. Continue connection and FriendCode assignment.", name);
             }
 
             if (name.Length > 10)
@@ -131,7 +124,10 @@ namespace Impostor.Server.Net.Manager
                 return;
             }
 
-            var clientIp = connection.EndPoint.Address;
+            // 获取 UDP 连接的客户端 IP，将 IPv4-mapped IPv6 规范化为纯 IPv4
+            // 这样才能与 HTTP 认证时存储的 IPv4 地址正确匹配
+            var rawClientIp = connection.EndPoint.Address;
+            var clientIp = rawClientIp.IsIPv4MappedToIPv6 ? rawClientIp.MapToIPv4() : rawClientIp;
             string? productUserId = null;
             string? friendCode = null;
 
@@ -168,6 +164,15 @@ namespace Impostor.Server.Net.Manager
                     _logger.LogInformation(
                         "Client {Name} authenticated via handshake friendCode: PUID={Puid}, IP={Ip}",
                         name, productUserId, clientIp);
+                }
+                else
+                {
+                    // 即使无法通过缓存反查认证信息，也保留握手中携带的 FriendCode。
+                    // 这能避免错误地回退到 Name#XXXX，并使玩家显示正确的 FriendCode。
+                    friendCode = handshakeFriendCode;
+                    _logger.LogInformation(
+                        "Client {Name} provided handshake friendCode without auth cache hit, use handshake FriendCode directly: {FriendCode}, IP={Ip}",
+                        name, friendCode, clientIp);
                 }
             }
 

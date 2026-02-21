@@ -1,0 +1,11 @@
+<Project>
+    <PropertyGroup>
+        <Authors>Impostor</Authors>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <RepositoryUrl>https://github.com/Impostor/Impostor.Hazel</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
+
+        <VersionPrefix>1.0.0</VersionPrefix>
+        <VersionSuffix>dev</VersionSuffix>
+    </PropertyGroup>
+</Project>

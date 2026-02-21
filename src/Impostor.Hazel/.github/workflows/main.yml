@@ -1,0 +1,32 @@
+name: CI
+
+on: [ "push", "pull_request" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: 7.x
+
+      - name: Run the Cake script
+        uses: cake-build/cake-action@94fa55b4f83cee90f2621654eba6a056ae71df90
+        with:
+          verbosity: Diagnostic
+
+      - uses: actions/upload-artifact@v3
+        with:
+          name: nuget packages
+          path: ./*/bin/Release*/*.nupkg
+
+      - name: Push NuGet package
+        if: github.ref_type == 'tag'
+        run: |
+          dotnet nuget push ./{Hazel,Impostor.Hazel.Abstractions}/bin/Release/*.nupkg --source https://api.nuget.org/v3/index.json --api-key ${{ secrets.NUGET_KEY }}

@@ -1551,13 +1551,15 @@ public sealed class AdminController : ControllerBase
         let currentTheme = '{theme}';
         let currentPlayer = null;
         
+        let autoRefreshTimer = null;
+
         // 页面加载完成后执行
         document.addEventListener('DOMContentLoaded', function() {{
             // 加载数据
             loadData();
             
-            // 设置自动刷新（每30秒）
-            setInterval(loadData, 30000);
+            // 设置自动刷新（每5秒）
+            autoRefreshTimer = setInterval(loadData, 30000);
         }});
         
         // 切换主题
@@ -2200,13 +2202,34 @@ public sealed class AdminController : ControllerBase
         }}
         
         // 发送房间消息
-        function sendRoomMessage(roomCode) {{
+        async function sendRoomMessage(roomCode) {{
             const message = prompt(currentLanguage === 'zh-CN' ? '请输入要发送到房间的消息:' : 'Enter message to send to room:');
-            if (!message) return;
-            
-            // 这里需要实现发送房间消息的API
-            // 暂时显示提示
-            alert(currentLanguage === 'zh-CN' ? '消息发送功能正在开发中' : 'Message sending feature is under development');
+            if (!message || !message.trim()) return;
+
+            try {{
+                const response = await fetch('/admin/chat', {{
+                    method: 'POST',
+                    headers: {{
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Basic ' + btoa('{_hostInfoConfig.AdminUser}:{_hostInfoConfig.AdminPassword}')
+                    }},
+                    body: JSON.stringify({{
+                        roomCode: roomCode,
+                        message: message.trim()
+                    }})
+                }});
+
+                const data = await response.json();
+                if (data.success) {{
+                    showSuccess(data.message || (currentLanguage === 'zh-CN' ? '消息发送成功！' : 'Message sent successfully!'));
+                    await loadRooms();
+                }} else {{
+                    showError(data.message || (currentLanguage === 'zh-CN' ? '发送失败' : 'Send failed'));
+                }}
+            }} catch (error) {{
+                console.error('Error:', error);
+                showError(currentLanguage === 'zh-CN' ? '发送消息时发生错误' : 'Error sending message');
+            }}
         }}
         
         // 显示封禁列表模态框
@@ -2630,6 +2653,7 @@ public sealed class AdminController : ControllerBase
     <script>
         const roomCode = '{roomCode}';
         let currentTheme = '{theme}';
+        let roomAutoRefreshTimer = null;
         
         // 切换主题
         function toggleTheme() {{
@@ -2666,12 +2690,12 @@ public sealed class AdminController : ControllerBase
         // 设置主题切换按钮事件
         document.getElementById('themeToggle').addEventListener('click', toggleTheme);
         
-        function sendChatMessage() {{
+        async function sendChatMessage() {{
             const input = document.getElementById('chatInput');
             const message = input.value.trim();
             
             if (message) {{
-                fetch('/admin/chat', {{
+                const response = await fetch('/admin/chat', {{
                     method: 'POST',
                     headers: {{
                         'Content-Type': 'application/json',
@@ -2681,16 +2705,57 @@ public sealed class AdminController : ControllerBase
                         roomCode: roomCode,
                         message: message
                     }})
-                }})
-                .then(response => response.json())
-                .then(data => {{
-                    if (data.success) {{
-                        input.value = '';
-                        location.reload();
-                    }} else {{
-                        alert(data.message || '{(isEnglish ? "Failed to send message" : "发送消息失败")}');
+                }});
+
+                const data = await response.json();
+                if (data.success) {{
+                    input.value = '';
+                    await refreshRoomDetails();
+                }} else {{
+                    alert(data.message || '{(isEnglish ? "Failed to send message" : "发送消息失败")}');
+                }}
+            }}
+        }}
+
+        async function refreshRoomDetails() {{
+            try {{
+                const response = await fetch('/admin/api/games', {{
+                    headers: {{
+                        'Authorization': 'Basic ' + btoa('{_hostInfoConfig.AdminUser}:{_hostInfoConfig.AdminPassword}')
                     }}
                 }});
+
+                if (!response.ok) return;
+
+                const games = await response.json();
+                const currentGame = games.find(g => g.code === roomCode);
+                if (!currentGame) {{
+                    return;
+                }}
+
+                const chatResponse = await fetch('/admin/room/' + roomCode, {{
+                    headers: {{
+                        'Authorization': 'Basic ' + btoa('{_hostInfoConfig.AdminUser}:{_hostInfoConfig.AdminPassword}')
+                    }}
+                }});
+
+                if (!chatResponse.ok) return;
+
+                const htmlText = await chatResponse.text();
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(htmlText, 'text/html');
+                const newChatContainer = doc.getElementById('chatContainer');
+                const currentChatContainer = document.getElementById('chatContainer');
+
+                if (newChatContainer && currentChatContainer) {{
+                    const shouldStickToBottom = currentChatContainer.scrollTop + currentChatContainer.clientHeight >= currentChatContainer.scrollHeight - 20;
+                    currentChatContainer.innerHTML = newChatContainer.innerHTML;
+                    if (shouldStickToBottom) {{
+                        currentChatContainer.scrollTop = currentChatContainer.scrollHeight;
+                    }}
+                }}
+            }} catch (error) {{
+                console.error('Failed to refresh room details:', error);
             }}
         }}
         
@@ -2738,6 +2803,8 @@ public sealed class AdminController : ControllerBase
         // 滚动到聊天底部
         const chatContainer = document.getElementById('chatContainer');
         chatContainer.scrollTop = chatContainer.scrollHeight;
+
+        roomAutoRefreshTimer = setInterval(refreshRoomDetails, 5000);
     </script>
 </body>
 </html>");

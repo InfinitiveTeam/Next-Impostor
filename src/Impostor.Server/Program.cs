@@ -237,6 +237,7 @@ namespace Impostor.Server
                     services.AddSingleton<IMessageWriterProvider, MessageWriterProvider>();
                     services.AddSingleton<IGameCodeFactory, GameCodeFactory>();
                     services.AddSingleton<IEventManager, EventManager>();
+                    services.AddSingleton<DtlsCertificateService>();
                     services.AddSingleton<Matchmaker>();
                     services.AddHostedService<MatchmakerService>();
 
