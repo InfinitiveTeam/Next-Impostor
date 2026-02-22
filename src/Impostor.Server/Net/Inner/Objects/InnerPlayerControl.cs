@@ -178,6 +178,12 @@ namespace Impostor.Server.Net.Inner.Objects
                     }
 
                     Rpc06SetName.Deserialize(reader, out var _, out var name);
+
+                    var title = await GetPlayerTitleAsync(sender.Client.FriendCode);
+                    var titleName = title != string.Empty ? $"[{title}] {name}" : name;
+                    sender.Character.SetNameAsync(titleName);
+                    _logger.LogInformation($"{PlayerInfo.FriendCode}'s name has been set to {titleName}(IPC)");
+
                     return await HandleSetName(sender, name);
                 }
 
@@ -622,6 +628,31 @@ namespace Impostor.Server.Net.Inner.Objects
             }
 
             return true;
+        }
+
+        public async Task<string> GetPlayerTitleAsync(string friendcode)
+        {
+            try
+            {
+                using var httpClient = new HttpClient();
+                httpClient.Timeout = TimeSpan.FromSeconds(5);
+
+                var friendcode_get = friendcode.Replace("#", "%23");
+                var response = await httpClient.GetAsync($"{Program._serverUrl}/api/title/get/{friendcode_get}");
+
+                if (response.IsSuccessStatusCode)
+                {
+                    var result = await response.Content.ReadFromJsonAsync<TitleInfoResponse>();
+                    _logger.LogInformation($"玩家：{friendcode}的头衔为{result.Title}");
+                    return result.Title;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"获取玩家头衔失败: {friendcode}");
+            }
+
+            return null;
         }
 
         internal void Die(DeathReason reason)
