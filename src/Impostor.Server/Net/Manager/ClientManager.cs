@@ -132,8 +132,32 @@ namespace Impostor.Server.Net.Manager
             string? friendCode = null;
 
             // === 核心认证逻辑 ===
-            // 优先方案 1：从握手包中的 matchmakerToken 解析（最可靠，不依赖 IP）
-            if (!string.IsNullOrEmpty(matchmakerToken))
+            // HandshakeC2S 将 LastNonceReceived 包装为 "NONCE:{uint}" 字符串
+            if (!string.IsNullOrEmpty(matchmakerToken) && matchmakerToken.StartsWith("NONCE:", StringComparison.Ordinal))
+            {
+                if (uint.TryParse(matchmakerToken.AsSpan(6), out var nonce))
+                {
+                    var authInfo = AuthCacheService.GetUserAuthByNonce(nonce);
+                    if (authInfo != null)
+                    {
+                        productUserId = authInfo.ProductUserId;
+                        friendCode = authInfo.FriendCode;
+                        _logger.LogInformation(
+                            "Client {Name} authenticated via nonce: FriendCode={FriendCode}, IP={Ip}",
+                            name, friendCode, clientIp);
+                        matchmakerToken = null;
+                    }
+                    else
+                    {
+                        _logger.LogDebug(
+                            "Client {Name} nonce {Nonce} not found in cache, falling back. IP={Ip}",
+                            name, nonce, clientIp);
+                        matchmakerToken = null;
+                    }
+                }
+            }
+
+            if (productUserId == null && !string.IsNullOrEmpty(matchmakerToken))
             {
                 var authInfo = AuthCacheService.GetUserAuthByToken(matchmakerToken);
                 if (authInfo != null)
@@ -152,7 +176,6 @@ namespace Impostor.Server.Net.Manager
                 }
             }
 
-            // 优先方案 2：握手包中直接携带了 friendCode（DTLS 模式）
             if (productUserId == null && !string.IsNullOrEmpty(handshakeFriendCode))
             {
                 // 通过 friendCode 在缓存中查找对应的 PUID
@@ -176,7 +199,7 @@ namespace Impostor.Server.Net.Manager
                 }
             }
 
-            // 回退方案：通过 IP 精确匹配（不允许使用"最近玩家"猜测）
+            // 回退方案：通过 IP 精确匹配
             if (productUserId == null)
             {
                 var authByIp = AuthCacheService.GetUserAuthByIp(clientIp);

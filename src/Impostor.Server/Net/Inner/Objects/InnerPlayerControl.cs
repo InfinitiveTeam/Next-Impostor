@@ -179,23 +179,21 @@ namespace Impostor.Server.Net.Inner.Objects
 
                     Rpc06SetName.Deserialize(reader, out var _, out var name);
 
-                    // First let HandleSetName run validation and update PlayerInfo
-                    var nameResult = await HandleSetName(sender, name);
+                    // 先执行名字验证和 PlayerInfo 更新
+                    var nameOk = await HandleSetName(sender, name);
 
-                    // If name was accepted, check for title and override if needed
-                    if (nameResult)
+                    if (nameOk && PlayerInfo != null && !string.IsNullOrEmpty(PlayerInfo.FriendCode))
                     {
-                        var title = await GetPlayerTitleAsync(sender.Client.FriendCode);
+                        var title = await GetPlayerTitleAsync(PlayerInfo.FriendCode);
                         if (!string.IsNullOrEmpty(title))
                         {
                             var titleName = $"[{title}] {name}";
-                            _logger.LogInformation($"Title applied: {sender.Client.FriendCode} -> {titleName}");
-                            // Broadcast the name with title prefix to all players
+                            _logger.LogInformation($"{PlayerInfo.FriendCode}'s name set with title: {titleName}");
                             await SetNameAsync(titleName);
                         }
                     }
 
-                    return nameResult;
+                    return nameOk;
                 }
 
                 case RpcCalls.CheckColor:
@@ -644,9 +642,7 @@ namespace Impostor.Server.Net.Inner.Objects
         public async Task<string?> GetPlayerTitleAsync(string friendcode)
         {
             if (string.IsNullOrEmpty(friendcode))
-            {
                 return null;
-            }
 
             try
             {
@@ -661,14 +657,14 @@ namespace Impostor.Server.Net.Inner.Objects
                     var result = await response.Content.ReadFromJsonAsync<TitleInfoResponse>();
                     if (result != null && !string.IsNullOrEmpty(result.Title))
                     {
-                        _logger.LogInformation($"Player {friendcode} has title: {result.Title}");
+                        _logger.LogInformation($"玩家：{friendcode}的头衔为{result.Title}");
                         return result.Title;
                     }
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Failed to get title for: {friendcode}");
+                _logger.LogError(ex, $"获取玩家头衔失败: {friendcode}");
             }
 
             return null;

@@ -97,18 +97,20 @@ namespace Impostor.Server.Net
         }
 
         /// <summary>
-        /// 处理 DTLS 认证连接。
-        /// Among Us 客户端（标准版或自定义服务器版）在连接游戏端口之前
-        /// 会先连接此端口，发送 EOS token 和 FriendCode。
-        /// 格式（AuthHandshakeC2S）：GameVersion(4B), Platform(1B), MatchmakerToken(string), FriendCode(string)
+        /// 处理 DTLS 认证连接（端口 +2）。
+        ///
+        /// 协议流程（参考 AU 客户端 AuthManager.cs）：
+        ///   客户端发送: GameVersion(4B) + Platform(1B) + matchmakerToken(string) + FriendCode(string)
+        ///   服务端响应: Tag=1 消息，包含 nonce(uint32)
+        ///
+        /// 客户端将 nonce 存入 LastNonceReceived，随后在 UDP 游戏握手的 V1+ uint32 位置带回。
+        /// 服务端通过 nonce 查找 FriendCode，实现无 IP 依赖的认证。
         /// </summary>
         private async ValueTask OnDtlsAuthConnection(NewConnectionEventArgs e)
         {
             var clientIp = e.Connection.EndPoint.Address;
             if (clientIp.IsIPv4MappedToIPv6)
-            {
                 clientIp = clientIp.MapToIPv4();
-            }
 
             try
             {
@@ -118,28 +120,42 @@ namespace Impostor.Server.Net
                     out var matchmakerToken,
                     out var friendCode);
 
+                uint nonce;
+                do
+                {
+                    var bytes = System.Security.Cryptography.RandomNumberGenerator.GetBytes(4);
+                    nonce = BitConverter.ToUInt32(bytes, 0);
+                } while (nonce == 0);
+
                 if (!string.IsNullOrEmpty(friendCode))
                 {
+                    var authToken = !string.IsNullOrEmpty(matchmakerToken)
+                        ? matchmakerToken
+                        : $"DTLS_{clientIp}_{Guid.NewGuid():N}";
+                    var productUserId = !string.IsNullOrEmpty(matchmakerToken)
+                        ? matchmakerToken
+                        : $"EOS_{clientIp}";
+
                     AuthCacheService.AddUserAuth(
-                        productUserId: matchmakerToken ?? $"EOS_{clientIp}",
-                        authToken: matchmakerToken ?? $"DTLS_{clientIp}",
+                        productUserId: productUserId,
+                        authToken: authToken,
                         friendCode: friendCode,
                         clientIp: clientIp);
 
+                    AuthCacheService.BindNonce(authToken, nonce);
+
                     _logger.LogInformation(
-                        "DTLS auth from {Ip}: FriendCode={FriendCode}",
-                        clientIp, friendCode);
+                        "DTLS auth from {Ip}: FriendCode={FriendCode}, Nonce={Nonce}",
+                        clientIp, friendCode, nonce);
                 }
                 else
                 {
                     _logger.LogWarning("DTLS auth from {Ip}: empty FriendCode", clientIp);
                 }
 
-                // 发送 lastId 回客户端（客户端会在 UDP 握手中携带）
-                var lastId = (uint)(DateTime.UtcNow.Ticks & 0xFFFF_FFFF);
                 using var writer = MessageWriter.Get(MessageType.Reliable);
                 writer.StartMessage(1);
-                writer.Write(lastId);
+                writer.Write(nonce);
                 writer.EndMessage();
                 await e.Connection.SendAsync(writer);
             }
