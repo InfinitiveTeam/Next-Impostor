@@ -120,7 +120,6 @@
       "impostor.hazel.abstractions": {
         "type": "Project"
       }
-    },
-    "net8.0/linux-x64": {}
+    }
   }
 }
