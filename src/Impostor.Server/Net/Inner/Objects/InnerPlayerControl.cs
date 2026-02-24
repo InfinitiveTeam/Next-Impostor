@@ -38,15 +38,17 @@ namespace Impostor.Server.Net.Inner.Objects
 
         private readonly Game _game;
         private readonly ILogger<InnerPlayerControl> _logger;
+        private readonly Impostor.Server.Service.TitleService _titleService;
         private readonly IEventManager _eventManager;
         private readonly IDateTimeProvider _dateTimeProvider;
         private static HostInfoConfig _hostInfoConfig;
         private static bool _configInitialized = false;
 
-        public InnerPlayerControl(ICustomMessageManager<ICustomRpc> customMessageManager, Game game, ILogger<InnerPlayerControl> logger, IServiceProvider serviceProvider, IEventManager eventManager, IDateTimeProvider dateTimeProvider) : base(customMessageManager, game)
+        public InnerPlayerControl(ICustomMessageManager<ICustomRpc> customMessageManager, Game game, ILogger<InnerPlayerControl> logger, IServiceProvider serviceProvider, IEventManager eventManager, IDateTimeProvider dateTimeProvider, Impostor.Server.Service.TitleService titleService) : base(customMessageManager, game)
         {
             _game = game;
             _logger = logger;
+            _titleService = titleService;
             _eventManager = eventManager;
             _dateTimeProvider = dateTimeProvider;
 
@@ -182,6 +184,8 @@ namespace Impostor.Server.Net.Inner.Objects
                     // 先执行名字验证和 PlayerInfo 更新
                     var nameOk = await HandleSetName(sender, name);
 
+                    // 验证通过后，查询本玩家（this）的头衔并覆盖广播
+                    // 必须用 PlayerInfo.FriendCode（本玩家），不能用 sender.Client.FriendCode（主机）
                     if (nameOk && PlayerInfo != null && !string.IsNullOrEmpty(PlayerInfo.FriendCode))
                     {
                         var title = await GetPlayerTitleAsync(PlayerInfo.FriendCode);
@@ -189,6 +193,7 @@ namespace Impostor.Server.Net.Inner.Objects
                         {
                             var titleName = $"[{title}] {name}";
                             _logger.LogInformation($"{PlayerInfo.FriendCode}'s name set with title: {titleName}");
+                            // 在 this（本玩家的 PlayerControl）上广播带头衔的名字
                             await SetNameAsync(titleName);
                         }
                     }
@@ -639,35 +644,11 @@ namespace Impostor.Server.Net.Inner.Objects
             return true;
         }
 
-        public async Task<string?> GetPlayerTitleAsync(string friendcode)
+        public Task<string?> GetPlayerTitleAsync(string friendcode)
         {
-            if (string.IsNullOrEmpty(friendcode))
-                return null;
-
-            try
-            {
-                using var httpClient = new HttpClient();
-                httpClient.Timeout = TimeSpan.FromSeconds(5);
-
-                var friendcode_get = Uri.EscapeDataString(friendcode);
-                var response = await httpClient.GetAsync($"{Program._serverUrl}/api/title/get/{friendcode_get}");
-
-                if (response.IsSuccessStatusCode)
-                {
-                    var result = await response.Content.ReadFromJsonAsync<TitleInfoResponse>();
-                    if (result != null && !string.IsNullOrEmpty(result.Title))
-                    {
-                        _logger.LogInformation($"玩家：{friendcode}的头衔为{result.Title}");
-                        return result.Title;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"获取玩家头衔失败: {friendcode}");
-            }
-
-            return null;
+            // 直接调用 TitleService，无需 HTTP 回环（更快更可靠）
+            var title = _titleService.GetTitle(friendcode);
+            return Task.FromResult(title);
         }
 
         internal void Die(DeathReason reason)
