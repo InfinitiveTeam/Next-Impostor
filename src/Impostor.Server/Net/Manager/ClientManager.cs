@@ -25,6 +25,7 @@ namespace Impostor.Server.Net.Manager
         private readonly ICompatibilityManager _compatibilityManager;
         private readonly CompatibilityConfig _compatibilityConfig;
         private readonly IClientFactory _clientFactory;
+        private readonly SafePUIDMapper _puidMapper;
         private int _idLast;
 
         public ClientManager(
@@ -40,6 +41,7 @@ namespace Impostor.Server.Net.Manager
             _clients = new ConcurrentDictionary<int, ClientBase>();
             _compatibilityManager = compatibilityManager;
             _compatibilityConfig = compatibilityConfig.Value;
+            _puidMapper = new SafePUIDMapper();
 
             if (_compatibilityConfig.AllowFutureGameVersions
                 || _compatibilityConfig.AllowHostAuthority
@@ -239,6 +241,25 @@ namespace Impostor.Server.Net.Manager
 
             var id = NextId();
             client.Id = id;
+            
+            // === PUID 映射检查 ===
+            // 防止同一 PUID 的多个连接（在 NAT 环境中很关键）
+            if (!string.IsNullOrEmpty(productUserId) && client is Client concreteClient)
+            {
+                // 尝试注册 PUID
+                if (!_puidMapper.TryRegisterPUID(id, productUserId))
+                {
+                    // PUID 已在线 - 这不应该发生，日志警告
+                    _logger.LogWarning(
+                        "PUID {Puid} is already online from another client. Disconnecting new connection. ClientName={Name}, NewClientId={ClientId}",
+                        productUserId, name, id);
+                    
+                    // 踢出新连接
+                    await connection.CustomDisconnectAsync(DisconnectReason.Custom, "Your account is already logged in elsewhere.");
+                    return;
+                }
+            }
+            
             _logger.LogTrace("Client connected with ID: {ClientId}, IP: {ClientIp}, PUID: {Puid}, FriendCode: {FriendCode}",
                 id, clientIp, client.ProductUserId, client.FriendCode);
             _clients.TryAdd(id, client);
@@ -264,6 +285,11 @@ namespace Impostor.Server.Net.Manager
         public void Remove(IClient client)
         {
             _logger.LogTrace("Client {ClientId} disconnected.", client.Id);
+            
+            // === PUID 映射清理 ===
+            // 防止内存泄漏和PUID卡住
+            _puidMapper.TryUnregisterPUID(client.Id);
+            
             _clients.TryRemove(client.Id, out _);
         }
 
