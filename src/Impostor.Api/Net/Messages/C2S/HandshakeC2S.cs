@@ -6,17 +6,20 @@ namespace Impostor.Api.Net.Messages.C2S
     public static class HandshakeC2S
     {
         /// <summary>
-        /// 解析 UDP 握手包。
+        /// 解析标准 UDP 握手包（非 DTLS 布局）。
         ///
-        /// 实际 UDP（非 DTLS）握手包格式（参考 Among Us 客户端及 preview 项目实现）：
+        /// 格式（Among Us 客户端 GetConnectionData，useDtls=false）：
         ///   GameVersion (4B)
         ///   Name (string)
-        ///   [V1+] LastNonce / uint32 (4B) — 不使用，忽略
+        ///   [V1+] LastNonceReceived (uint32) — 从 DTLS 认证端口收到的 nonce，用于无 IP 认证
         ///   [V2+] Language (uint32) + ChatMode (byte)
-        ///   [V3+] PlatformSpecificData (message) + ProductUserId (string, 客户端自报) + CrossplayFlags (uint32)
+        ///   [V3+] PlatformSpecificData (message) + ProductUserId (string) + CrossplayFlags (uint32)
         ///
-        /// 注意：UDP 握手包中不包含 matchmakerToken 或 friendCode。
-        /// 认证信息通过 HTTP /api/user 端点预先交换，并在服务端按 IP 地址缓存关联。
+        /// 认证流程（无 IP 依赖）：
+        ///   1. HTTP POST /api/user → 获得 matchmakerToken
+        ///   2. DTLS port+2 → 发送 matchmakerToken + FriendCode → 服务端回复 nonce
+        ///   3. UDP game port → 握手中 LastNonceReceived 字段带回 nonce
+        ///   4. 服务端通过 nonce 查找 FriendCode
         /// </summary>
         public static void Deserialize(
             IMessageReader reader,
@@ -31,10 +34,18 @@ namespace Impostor.Api.Net.Messages.C2S
             clientVersion = reader.ReadGameVersion();
             name = reader.ReadString();
 
-            // V1+: lastNonce / lastId（uint32）— 客户端用于重连，服务端忽略
+            matchmakerToken = null;
+            friendCode = null;
+
+            // V1+: LastNonceReceived (uint32) — 客户端从 DTLS 认证端口收到后原样带回
+            // 用 "NONCE:" 前缀包装，让 ClientManager 识别并通过 nonce 查找 FriendCode
             if (clientVersion >= Version.V1)
             {
-                reader.ReadUInt32();
+                var nonce = reader.ReadUInt32();
+                if (nonce != 0)
+                {
+                    matchmakerToken = $"NONCE:{nonce}";
+                }
             }
 
             // V2+: 语言 + 聊天模式
@@ -49,48 +60,28 @@ namespace Impostor.Api.Net.Messages.C2S
                 chatMode = QuickChatModes.FreeChatOrQuickChat;
             }
 
-            // V3+: 平台数据 (message) + ProductUserId/matchmakerToken (string) + CrossplayFlags (uint32)
-            matchmakerToken = null;
-            friendCode = null;
+            // V3+: 平台数据 + ProductUserId + CrossplayFlags
+            // 不读取额外字节，避免误解析 Reactor 等 Mod 附加数据（之前版本把 "ro" 读成 token）
             if (clientVersion >= Version.V3)
             {
                 using var platformReader = reader.ReadMessage();
                 platformSpecificData = new PlatformSpecificData(platformReader);
 
-                // 读取 ProductUserId 字符串位置的数据：
-                // - 标准客户端：此处为 ProductUserId（跳过）
-                // - 自定义客户端：此处可能携带 matchmakerToken（base64 JSON，以 'ey' 开头）
-                string? productUserIdOrToken = null;
+                // 跳过 ProductUserId（客户端自报，服务端不信任）
                 if (reader.Position < reader.Length)
                 {
-                    try { productUserIdOrToken = reader.ReadString(); } catch { /* 忽略 */ }
+                    try { reader.ReadString(); } catch { /* ignore */ }
                 }
 
-                // CrossplayFlags (uint32)
+                // 跳过 CrossplayFlags
                 if (reader.Position < reader.Length)
                 {
-                    try { reader.ReadUInt32(); } catch { /* 忽略 */ }
+                    try { reader.ReadUInt32(); } catch { /* ignore */ }
                 }
 
-                // 尝试从剩余字节读取附加的 matchmakerToken 和 friendCode（自定义客户端扩展）
-                if (reader.Position < reader.Length)
-                {
-                    try { matchmakerToken = reader.ReadString(); } catch { /* 忽略 */ }
-                }
-                if (reader.Position < reader.Length)
-                {
-                    try { friendCode = reader.ReadString(); } catch { /* 忽略 */ }
-                }
-
-                // 如果附加字段为空，检查 productUserIdOrToken 是否为 base64 JSON token
-                // （自定义客户端可能把 matchmakerToken 放在 ProductUserId 位置）
-                if (matchmakerToken == null
-                    && productUserIdOrToken != null
-                    && productUserIdOrToken.Length > 10
-                    && productUserIdOrToken.StartsWith("ey", System.StringComparison.Ordinal))
-                {
-                    matchmakerToken = productUserIdOrToken;
-                }
+                // 不再尝试读取额外字节：
+                // - 标准客户端此处无额外数据
+                // - Reactor 等 Mod 在此处附加 mod 标识，不应被当作认证数据
             }
             else
             {

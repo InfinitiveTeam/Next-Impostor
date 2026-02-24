@@ -39,7 +39,7 @@ namespace Impostor.Server
     internal static class Program
     {
         private static readonly string _logFolder = Path.Combine(Directory.GetCurrentDirectory(), "Log");
-        public static string _serverUrl = "http://127.0.0.1";
+        public static string _serverUrl = "https://imp.xtreme.net.cn";
 
         private static int Main(string[] args)
         {
@@ -205,6 +205,7 @@ namespace Impostor.Server
                     services.AddSingleton<ClientManager>();
                     services.AddSingleton<IClientManager>(p => p.GetRequiredService<ClientManager>());
                     services.AddSingleton<EmailService>();
+                    services.AddSingleton<Impostor.Server.Service.TitleService>();
 
                     if (debug.GameRecorderEnabled)
                     {
@@ -237,7 +238,6 @@ namespace Impostor.Server
                     services.AddSingleton<IMessageWriterProvider, MessageWriterProvider>();
                     services.AddSingleton<IGameCodeFactory, GameCodeFactory>();
                     services.AddSingleton<IEventManager, EventManager>();
-                    services.AddSingleton<DtlsCertificateService>();
                     services.AddSingleton<Matchmaker>();
                     services.AddHostedService<MatchmakerService>();
 

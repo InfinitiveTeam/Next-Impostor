@@ -5,7 +5,6 @@ using System.Threading.Tasks;
 using Impostor.Api.Events.Managers;
 using Impostor.Api.Net.Messages.C2S;
 using Impostor.Hazel;
-using Impostor.Hazel.Dtls;
 using Impostor.Hazel.Udp;
 using Impostor.Server.Events.Client;
 using Impostor.Server.Net.Hazel;
@@ -23,25 +22,19 @@ namespace Impostor.Server.Net
         private readonly ObjectPool<MessageReader> _readerPool;
         private readonly ILogger<HazelConnection> _connectionLogger;
         private readonly ILogger<Matchmaker> _logger;
-        private readonly DtlsCertificateService _certService;
-
         private UdpConnectionListener? _connection;
-        private DtlsConnectionListener? _dtlsAuthListener;
-
         public Matchmaker(
             IEventManager eventManager,
             ClientManager clientManager,
             ObjectPool<MessageReader> readerPool,
             ILogger<HazelConnection> connectionLogger,
-            ILogger<Matchmaker> logger,
-            DtlsCertificateService certService)
+            ILogger<Matchmaker> logger)
         {
             _eventManager = eventManager;
             _clientManager = clientManager;
             _readerPool = readerPool;
             _connectionLogger = connectionLogger;
             _logger = logger;
-            _certService = certService;
         }
 
         public async ValueTask StartAsync(IPEndPoint ipEndPoint)
@@ -61,26 +54,6 @@ namespace Impostor.Server.Net
 
             await _connection.StartAsync();
             _logger.LogInformation("UDP game listener started on {EndPoint}", ipEndPoint);
-
-            // 尝试启动 DTLS 认证监听器（端口 +2）
-            // Among Us 客户端在连接 UDP 游戏端口之前，会先通过此端口发送 EOS token 和 FriendCode
-            var authEndPoint = new IPEndPoint(ipEndPoint.Address, ipEndPoint.Port + 2);
-            try
-            {
-                var cert = _certService.GetOrCreateCertificate();
-                _dtlsAuthListener = new DtlsConnectionListener(authEndPoint, _readerPool, mode)
-                {
-                    NewConnection = OnDtlsAuthConnection,
-                };
-                _dtlsAuthListener.SetCertificate(cert);
-                await _dtlsAuthListener.StartAsync();
-                _logger.LogInformation("DTLS auth listener started on {EndPoint} (game port+2)", authEndPoint);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to start DTLS auth listener on {EndPoint}. FriendCode falls back to IP/HTTP auth.", authEndPoint);
-                _dtlsAuthListener = null;
-            }
         }
 
         public async ValueTask StopAsync()
@@ -88,80 +61,6 @@ namespace Impostor.Server.Net
             if (_connection != null)
             {
                 await _connection.DisposeAsync();
-            }
-
-            if (_dtlsAuthListener != null)
-            {
-                await _dtlsAuthListener.DisposeAsync();
-            }
-        }
-
-        /// <summary>
-        /// 处理 DTLS 认证连接（端口 +2）。
-        ///
-        /// 协议流程（参考 AU 客户端 AuthManager.cs）：
-        ///   客户端发送: GameVersion(4B) + Platform(1B) + matchmakerToken(string) + FriendCode(string)
-        ///   服务端响应: Tag=1 消息，包含 nonce(uint32)
-        ///
-        /// 客户端将 nonce 存入 LastNonceReceived，随后在 UDP 游戏握手的 V1+ uint32 位置带回。
-        /// 服务端通过 nonce 查找 FriendCode，实现无 IP 依赖的认证。
-        /// </summary>
-        private async ValueTask OnDtlsAuthConnection(NewConnectionEventArgs e)
-        {
-            var clientIp = e.Connection.EndPoint.Address;
-            if (clientIp.IsIPv4MappedToIPv6)
-                clientIp = clientIp.MapToIPv4();
-
-            try
-            {
-                AuthHandshakeC2S.Deserialize(
-                    e.HandshakeData,
-                    out _,
-                    out var matchmakerToken,
-                    out var friendCode);
-
-                uint nonce;
-                do
-                {
-                    var bytes = System.Security.Cryptography.RandomNumberGenerator.GetBytes(4);
-                    nonce = BitConverter.ToUInt32(bytes, 0);
-                } while (nonce == 0);
-
-                if (!string.IsNullOrEmpty(friendCode))
-                {
-                    var authToken = !string.IsNullOrEmpty(matchmakerToken)
-                        ? matchmakerToken
-                        : $"DTLS_{clientIp}_{Guid.NewGuid():N}";
-                    var productUserId = !string.IsNullOrEmpty(matchmakerToken)
-                        ? matchmakerToken
-                        : $"EOS_{clientIp}";
-
-                    AuthCacheService.AddUserAuth(
-                        productUserId: productUserId,
-                        authToken: authToken,
-                        friendCode: friendCode,
-                        clientIp: clientIp);
-
-                    AuthCacheService.BindNonce(authToken, nonce);
-
-                    _logger.LogInformation(
-                        "DTLS auth from {Ip}: FriendCode={FriendCode}, Nonce={Nonce}",
-                        clientIp, friendCode, nonce);
-                }
-                else
-                {
-                    _logger.LogWarning("DTLS auth from {Ip}: empty FriendCode", clientIp);
-                }
-
-                using var writer = MessageWriter.Get(MessageType.Reliable);
-                writer.StartMessage(1);
-                writer.Write(nonce);
-                writer.EndMessage();
-                await e.Connection.SendAsync(writer);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error in DTLS auth from {Ip}", clientIp);
             }
         }
 

@@ -20,7 +20,7 @@ namespace Impostor.Api.Net.Messages.S2C
             player.Client.PlatformSpecificData.Serialize(writer);
             writer.WritePacked(player.Character?.PlayerInfo?.PlayerLevel ?? 1);
 
-            // Client reads ProductUserId first, then FriendCode
+            // AU client reads: productUserId first, then friendCode (InnerNetClient.cs)
             writer.Write(player.Client.ProductUserId);
             writer.Write(player.Client.FriendCode);
             writer.EndMessage();

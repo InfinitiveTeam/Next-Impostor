@@ -132,6 +132,7 @@ namespace Impostor.Server.Net.Manager
             string? friendCode = null;
 
             // === 核心认证逻辑 ===
+            // 优先方案 1：通过 Nonce 匹配（最可靠，不依赖 IP）
             // HandshakeC2S 将 LastNonceReceived 包装为 "NONCE:{uint}" 字符串
             if (!string.IsNullOrEmpty(matchmakerToken) && matchmakerToken.StartsWith("NONCE:", StringComparison.Ordinal))
             {
@@ -145,7 +146,7 @@ namespace Impostor.Server.Net.Manager
                         _logger.LogInformation(
                             "Client {Name} authenticated via nonce: FriendCode={FriendCode}, IP={Ip}",
                             name, friendCode, clientIp);
-                        matchmakerToken = null;
+                        matchmakerToken = null; // 已处理，清空避免下面重复查找
                     }
                     else
                     {
@@ -157,6 +158,7 @@ namespace Impostor.Server.Net.Manager
                 }
             }
 
+            // 优先方案 2：从握手包中的 matchmakerToken 解析
             if (productUserId == null && !string.IsNullOrEmpty(matchmakerToken))
             {
                 var authInfo = AuthCacheService.GetUserAuthByToken(matchmakerToken);
@@ -176,6 +178,7 @@ namespace Impostor.Server.Net.Manager
                 }
             }
 
+            // 优先方案 3：握手包中直接携带了 friendCode
             if (productUserId == null && !string.IsNullOrEmpty(handshakeFriendCode))
             {
                 // 通过 friendCode 在缓存中查找对应的 PUID
