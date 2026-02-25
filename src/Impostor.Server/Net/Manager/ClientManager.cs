@@ -72,27 +72,14 @@ namespace Impostor.Server.Net.Manager
 
             if (clientId < 1)
             {
-                // Super rare but reset the _idLast because of overflow.
                 _idLast = 0;
-
-                // And get a new id.
                 clientId = Interlocked.Increment(ref _idLast);
             }
 
             return clientId;
         }
 
-        // ★ 修改：添加 productUserId 参数
-        public async ValueTask RegisterConnectionAsync(
-            IHazelConnection connection, 
-            string name, 
-            GameVersion clientVersion, 
-            Language language, 
-            QuickChatModes chatMode, 
-            PlatformSpecificData? platformSpecificData, 
-            string? matchmakerToken = null, 
-            string? handshakeFriendCode = null,
-            string? productUserId = null)  // ★ 新增：从握手中获取的 ProductUserId
+        public async ValueTask RegisterConnectionAsync(IHazelConnection connection, string name, GameVersion clientVersion, Language language, QuickChatModes chatMode, PlatformSpecificData? platformSpecificData, string? matchmakerToken = null, string? handshakeFriendCode = null)
         {
             var versionCompare = _compatibilityManager.CanConnectToServer(clientVersion);
             if (versionCompare == ICompatibilityManager.VersionCompareResult.ServerTooOld && _compatibilityConfig.AllowFutureGameVersions && platformSpecificData != null)
@@ -134,120 +121,117 @@ namespace Impostor.Server.Net.Manager
                 return;
             }
 
-            // 获取 UDP 连接的客户端 IP
             var rawClientIp = connection.EndPoint.Address;
             var clientIp = rawClientIp.IsIPv4MappedToIPv6 ? rawClientIp.MapToIPv4() : rawClientIp;
-            string? authProductUserId = null;
+            string? productUserId = null;
             string? friendCode = null;
 
-            // ★ 修改：优先级顺序更改为优先使用握手中的 ProductUserId（最可靠）
+            // ★★★ 关键修改：改进的认证优先级
+            // 现在优先使用 matchmakerToken 通过 HTTP 缓存进行认证
+            // 这确保了玩家身份是通过正式的 HTTP 认证验证的，而不仅仅依靠 IP
             
-            // 优先方案 1：握手中的 ProductUserId（最可靠）
-            // AU 客户端会在握手时自动发送 ProductUserId（EOS 账号 ID）
-            if (!string.IsNullOrEmpty(productUserId))
+            // 优先方案 1：通过 matchmakerToken 查询 HTTP 缓存的认证信息（最可靠）
+            // matchmakerToken 来自于客户端的 HTTP /api/user/token 请求
+            // 这是最可信的认证方式，因为服务器已验证了客户端的 EOS Token
+            if (!string.IsNullOrEmpty(matchmakerToken))
             {
-                _logger.LogDebug(
-                    "Client {Name} provided ProductUserId in handshake: {ProductUserId}",
-                    name, productUserId);
+                // 首先尝试作为 NONCE
+                if (matchmakerToken.StartsWith("NONCE:", StringComparison.Ordinal))
+                {
+                    if (uint.TryParse(matchmakerToken.AsSpan(6), out var nonce))
+                    {
+                        var authInfo = AuthCacheService.GetUserAuthByNonce(nonce);
+                        if (authInfo != null)
+                        {
+                            productUserId = authInfo.ProductUserId;
+                            friendCode = authInfo.FriendCode;
+                            _logger.LogInformation(
+                                "✓ Client {Name} authenticated via NONCE: FriendCode={FriendCode}",
+                                name, friendCode);
+                            matchmakerToken = null;
+                        }
+                    }
+                }
                 
-                var authInfo = AuthCacheService.GetUserAuthByPuid(productUserId);
-                if (authInfo != null)
+                // 如果不是 NONCE，或 NONCE 查询失败，尝试作为 matchmakerToken
+                if (productUserId == null)
                 {
-                    authProductUserId = authInfo.ProductUserId;
-                    friendCode = authInfo.FriendCode;
-                    _logger.LogInformation(
-                        "Client {Name} authenticated via ProductUserId (PUID={PUID}): FriendCode={FriendCode}",
-                        name, productUserId, friendCode);
-                }
-                else
-                {
-                    _logger.LogWarning(
-                        "Client {Name} ProductUserId {ProductUserId} not found in auth cache, falling back",
-                        name, productUserId);
-                }
-            }
-
-            // 优先方案 2：从握手包中的 matchmakerToken
-            if (authProductUserId == null && !string.IsNullOrEmpty(matchmakerToken))
-            {
-                var authInfo = AuthCacheService.GetUserAuthByToken(matchmakerToken);
-                if (authInfo != null)
-                {
-                    authProductUserId = authInfo.ProductUserId;
-                    friendCode = authInfo.FriendCode;
-                    _logger.LogInformation(
-                        "Client {Name} authenticated via matchmakerToken: PUID={Puid}, FriendCode={FriendCode}",
-                        name, authProductUserId, friendCode);
-                }
-                else
-                {
-                    _logger.LogWarning(
-                        "Client {Name} sent matchmakerToken but it was not found in cache. Token={Token}",
-                        name, matchmakerToken.Length > 20 ? matchmakerToken[..20] + "..." : matchmakerToken);
+                    var authInfo = AuthCacheService.GetUserAuthByToken(matchmakerToken);
+                    if (authInfo != null)
+                    {
+                        productUserId = authInfo.ProductUserId;
+                        friendCode = authInfo.FriendCode;
+                        _logger.LogInformation(
+                            "✓ Client {Name} authenticated via HTTP matchmakerToken: PUID={Puid}, FriendCode={FriendCode}",
+                            name, productUserId, friendCode);
+                    }
+                    else
+                    {
+                        _logger.LogWarning(
+                            "✗ Client {Name} provided matchmakerToken but not found in cache. Token={Token}",
+                            name, matchmakerToken.Length > 20 ? matchmakerToken[..20] + "..." : matchmakerToken);
+                    }
                 }
             }
 
-            // 优先方案 3：握手包中直接携带的 friendCode
-            if (authProductUserId == null && !string.IsNullOrEmpty(handshakeFriendCode))
+            // 优先方案 2：握手中的 FriendCode（在非DTLS客户端或改进的客户端中）
+            if (productUserId == null && !string.IsNullOrEmpty(handshakeFriendCode))
             {
                 var authInfo = AuthCacheService.GetUserAuthByFriendCode(handshakeFriendCode);
                 if (authInfo != null)
                 {
-                    authProductUserId = authInfo.ProductUserId;
+                    productUserId = authInfo.ProductUserId;
                     friendCode = handshakeFriendCode;
                     _logger.LogInformation(
-                        "Client {Name} authenticated via handshake friendCode: PUID={Puid}",
-                        name, authProductUserId);
+                        "✓ Client {Name} authenticated via handshake FriendCode: PUID={Puid}",
+                        name, productUserId);
                 }
                 else
                 {
+                    // 即使缓存中未找到，仍然保留握手中的 FriendCode（可能来自已过期的认证）
                     friendCode = handshakeFriendCode;
                     _logger.LogInformation(
-                        "Client {Name} provided handshake friendCode without auth cache hit: {FriendCode}",
+                        "⚠ Client {Name} provided handshake FriendCode without cache hit: {FriendCode}",
                         name, friendCode);
                 }
             }
 
-            // 回退方案 4：通过 IP 精确匹配（仅当没有其他认证方式时）
-            if (authProductUserId == null)
+            // 回退方案：通过 IP 地址匹配（当没有其他认证方式时）
+            if (productUserId == null)
             {
-                _logger.LogDebug("Attempting IP-based fallback authentication for client {Name} from {ClientIp}", name, clientIp);
-                
                 var authByIp = AuthCacheService.GetUserAuthByIp(clientIp);
                 if (authByIp != null)
                 {
-                    authProductUserId = authByIp.ProductUserId;
+                    productUserId = authByIp.ProductUserId;
                     friendCode = authByIp.FriendCode;
-                    _logger.LogInformation(
-                        "Client {Name} authenticated via IP match (fallback): PUID={Puid}, IP={Ip}",
-                        name, authProductUserId, clientIp);
+                    _logger.LogWarning(
+                        "⚠ Client {Name} authenticated via IP match (fallback): PUID={Puid}, IP={Ip}",
+                        name, productUserId, clientIp);
                 }
                 else
                 {
-                    _logger.LogWarning(
-                        "Client {Name} connected without any valid authentication method. IP={Ip}",
+                    _logger.LogError(
+                        "✗ Client {Name} connected without any valid authentication. IP={Ip}",
                         name, clientIp);
                 }
             }
 
             var client = _clientFactory.Create(connection, name, clientVersion, language, chatMode, platformSpecificData);
 
-            if (!string.IsNullOrEmpty(authProductUserId) && client is Client concreteClient)
+            if (!string.IsNullOrEmpty(productUserId) && client is Client concreteClient)
             {
-                concreteClient.ProductUserId = authProductUserId;
-                concreteClient.FriendCode = friendCode ?? GenerateFallbackFriendCode(authProductUserId);
+                concreteClient.ProductUserId = productUserId;
+                concreteClient.FriendCode = friendCode ?? GenerateFallbackFriendCode(productUserId);
             }
             else if (client is Client concreteClient2)
             {
-                // 未认证玩家
                 var stableId = $"UNAUTH_{clientIp}_{name}";
                 concreteClient2.ProductUserId = $"UNAUTH_{GenerateStableDiscriminator(stableId)}";
-                concreteClient2.FriendCode = $"{name}#{GenerateStableDiscriminator(stableId)}";
+                concreteClient2.FriendCode = $"{System.Text.RegularExpressions.Regex.Replace(name, "[^a-zA-Z0-9]", "Player")}#{GenerateStableDiscriminator(stableId)}";
             }
 
             var id = NextId();
             client.Id = id;
-            
             _logger.LogTrace("Client connected with ID: {ClientId}, IP: {ClientIp}, PUID: {Puid}, FriendCode: {FriendCode}",
                 id, clientIp, client.ProductUserId, client.FriendCode);
             _clients.TryAdd(id, client);
