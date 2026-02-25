@@ -244,7 +244,7 @@ namespace Impostor.Server.Net.Manager
             
             // === PUID 映射检查 ===
             // 防止同一 PUID 的多个连接（在 NAT 环境中很关键）
-            if (!string.IsNullOrEmpty(productUserId) && client is Client concreteClient)
+            if (!string.IsNullOrEmpty(productUserId) && client is Client clientWithAuth)
             {
                 // 尝试注册 PUID
                 if (!_puidMapper.TryRegisterPUID(id, productUserId))

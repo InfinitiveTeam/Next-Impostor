@@ -73,7 +73,7 @@ namespace Impostor.Server.Net.Manager
         /// <summary>
         /// 获取客户端的 PUID
         /// </summary>
-        public bool TryGetPUID(int clientId, out string puid)
+        public bool TryGetPUID(int clientId, out string? puid)
         {
             return _clientIdToPuid.TryGetValue(clientId, out puid);
         }
@@ -81,9 +81,9 @@ namespace Impostor.Server.Net.Manager
         /// <summary>
         /// 检查 PUID 是否已在线
         /// </summary>
-        public bool IsPUIDOnline(string puid)
+        public bool IsPUIDOnline(string? puid)
         {
-            return _puidToClientId.ContainsKey(puid);
+            return !string.IsNullOrEmpty(puid) && _puidToClientId.ContainsKey(puid);
         }
 
         /// <summary>
