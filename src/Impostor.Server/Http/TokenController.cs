@@ -314,5 +314,8 @@ public sealed class TokenController : ControllerBase
 
         [JsonPropertyName("ExpiresAt")]
         public DateTime ExpiresAt { get; init; } = DefaultExpiryDate;
+        
+        [JsonPropertyName("Nonce")]
+        public uint Nonce { get; init; }
     }
 }
