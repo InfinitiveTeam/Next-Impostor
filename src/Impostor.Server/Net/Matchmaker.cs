@@ -66,7 +66,7 @@ namespace Impostor.Server.Net
 
         private async ValueTask OnNewConnection(NewConnectionEventArgs e)
         {
-            // Handshake.
+            // ★ 修改：现在握手解析返回 productUserId
             HandshakeC2S.Deserialize(
                 e.HandshakeData,
                 out var clientVersion,
@@ -75,13 +75,15 @@ namespace Impostor.Server.Net
                 out var chatMode,
                 out var platformSpecificData,
                 out var matchmakerToken,
-                out var friendCode);
+                out var friendCode,
+                out var productUserId);  // ★ 新增：从握手中获取 ProductUserId
 
             var connection = new HazelConnection(e.Connection, _connectionLogger);
 
             await _eventManager.CallAsync(new ClientConnectionEvent(connection, e.HandshakeData));
 
-            await _clientManager.RegisterConnectionAsync(connection, name, clientVersion, language, chatMode, platformSpecificData, matchmakerToken, friendCode);
+            // ★ 传递 productUserId 给认证逻辑
+            await _clientManager.RegisterConnectionAsync(connection, name, clientVersion, language, chatMode, platformSpecificData, matchmakerToken, friendCode, productUserId);
         }
     }
 }

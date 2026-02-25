@@ -11,15 +11,15 @@ namespace Impostor.Api.Net.Messages.C2S
         /// 格式（Among Us 客户端 GetConnectionData，useDtls=false）：
         ///   GameVersion (4B)
         ///   Name (string)
-        ///   [V1+] LastNonceReceived (uint32) — 从 DTLS 认证端口收到的 nonce，用于无 IP 认证
+        ///   [V1+] LastNonceReceived (uint32) — DTLS 已禁用，此字段总是 0
         ///   [V2+] Language (uint32) + ChatMode (byte)
         ///   [V3+] PlatformSpecificData (message) + ProductUserId (string) + CrossplayFlags (uint32)
         ///
-        /// 认证流程（无 IP 依赖）：
-        ///   1. HTTP POST /api/user → 获得 matchmakerToken
-        ///   2. DTLS port+2 → 发送 matchmakerToken + FriendCode → 服务端回复 nonce
-        ///   3. UDP game port → 握手中 LastNonceReceived 字段带回 nonce
-        ///   4. 服务端通过 nonce 查找 FriendCode
+        /// 认证流程（基于 ProductUserId，不依赖 IP）：
+        ///   1. 客户端通过 HTTP 认证，获取 FriendCode
+        ///   2. 游戏在握手时自动发送客户端的 ProductUserId
+        ///   3. 服务器通过 ProductUserId 查询缓存的 FriendCode
+        ///   4. 不再依赖 IP 匹配
         /// </summary>
         public static void Deserialize(
             IMessageReader reader,
@@ -29,23 +29,22 @@ namespace Impostor.Api.Net.Messages.C2S
             out QuickChatModes chatMode,
             out PlatformSpecificData? platformSpecificData,
             out string? matchmakerToken,
-            out string? friendCode)
+            out string? friendCode,
+            out string? productUserId)  // ★ 新增：返回握手中的 ProductUserId
         {
             clientVersion = reader.ReadGameVersion();
             name = reader.ReadString();
 
             matchmakerToken = null;
             friendCode = null;
+            productUserId = null;
 
-            // V1+: LastNonceReceived (uint32) — 客户端从 DTLS 认证端口收到后原样带回
-            // 用 "NONCE:" 前缀包装，让 ClientManager 识别并通过 nonce 查找 FriendCode
+            // V1+: LastNonceReceived (uint32) 
+            // DTLS 已禁用，此字段总是 0，不再使用
             if (clientVersion >= Version.V1)
             {
                 var nonce = reader.ReadUInt32();
-                if (nonce != 0)
-                {
-                    matchmakerToken = $"NONCE:{nonce}";
-                }
+                // 不处理 nonce，因为 DTLS 已禁用
             }
 
             // V2+: 语言 + 聊天模式
@@ -61,16 +60,20 @@ namespace Impostor.Api.Net.Messages.C2S
             }
 
             // V3+: 平台数据 + ProductUserId + CrossplayFlags
-            // 不读取额外字节，避免误解析 Reactor 等 Mod 附加数据（之前版本把 "ro" 读成 token）
             if (clientVersion >= Version.V3)
             {
                 using var platformReader = reader.ReadMessage();
                 platformSpecificData = new PlatformSpecificData(platformReader);
 
-                // 跳过 ProductUserId（客户端自报，服务端不信任）
+                // ★ 关键修改：读取并保留 ProductUserId
+                // 这是客户端的 EOS 账号 ID，用于可靠的身份识别
                 if (reader.Position < reader.Length)
                 {
-                    try { reader.ReadString(); } catch { /* ignore */ }
+                    try 
+                    { 
+                        productUserId = reader.ReadString();
+                    } 
+                    catch { /* ignore */ }
                 }
 
                 // 跳过 CrossplayFlags
@@ -78,10 +81,6 @@ namespace Impostor.Api.Net.Messages.C2S
                 {
                     try { reader.ReadUInt32(); } catch { /* ignore */ }
                 }
-
-                // 不再尝试读取额外字节：
-                // - 标准客户端此处无额外数据
-                // - Reactor 等 Mod 在此处附加 mod 标识，不应被当作认证数据
             }
             else
             {
