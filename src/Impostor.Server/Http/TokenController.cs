@@ -135,6 +135,14 @@ public sealed class TokenController : ControllerBase
                 "User authenticated: PUID={Puid}, FriendCode={FriendCode}, IP={Ip}",
                 productUserId, friendCode, clientIp);
 
+            if (request.Nonce != 0)
+            {
+                AuthCacheService.BindNonce(matchmakerToken, request.Nonce);
+                _logger.LogInformation(
+                    "Bound Nonce {Nonce} to auth for PUID={Puid}",
+                    request.Nonce, productUserId);
+            }
+
             var token = new Token
             {
                 Content = new TokenPayload
