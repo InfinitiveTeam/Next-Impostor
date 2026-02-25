@@ -285,6 +285,9 @@ public sealed class TokenController : ControllerBase
 
         [JsonPropertyName("Language")]
         public required Language Language { get; init; }
+
+        [JsonPropertyName("Nonce")]
+        public uint Nonce { get; init; }
     }
 
     /// <summary>Token that is returned to the user.</summary>
@@ -314,8 +317,5 @@ public sealed class TokenController : ControllerBase
 
         [JsonPropertyName("ExpiresAt")]
         public DateTime ExpiresAt { get; init; } = DefaultExpiryDate;
-        
-        [JsonPropertyName("Nonce")]
-        public uint Nonce { get; init; }
     }
 }
