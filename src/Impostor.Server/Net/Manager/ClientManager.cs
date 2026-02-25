@@ -1,3 +1,4 @@
+
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -126,15 +127,13 @@ namespace Impostor.Server.Net.Manager
             string? productUserId = null;
             string? friendCode = null;
 
-            // ★★★ 关键修改：改进的认证优先级
-            // 现在优先使用 matchmakerToken 通过 HTTP 缓存进行认证
-            // 这确保了玩家身份是通过正式的 HTTP 认证验证的，而不仅仅依靠 IP
+            // ★★★ 核心认证逻辑 - 按优先级尝试认证
             
-            // 优先方案 1：通过 matchmakerToken 查询 HTTP 缓存的认证信息（最可靠）
-            // matchmakerToken 来自于客户端的 HTTP /api/user/token 请求
-            // 这是最可信的认证方式，因为服务器已验证了客户端的 EOS Token
+            // 优先级 1：使用 matchmakerToken（来自 HTTP 认证缓存）
             if (!string.IsNullOrEmpty(matchmakerToken))
             {
+                _logger.LogInformation("🔍 [Auth-1] Client {Name}: Trying matchmakerToken...", name);
+                
                 // 首先尝试作为 NONCE
                 if (matchmakerToken.StartsWith("NONCE:", StringComparison.Ordinal))
                 {
@@ -145,76 +144,64 @@ namespace Impostor.Server.Net.Manager
                         {
                             productUserId = authInfo.ProductUserId;
                             friendCode = authInfo.FriendCode;
-                            _logger.LogInformation(
-                                "✓ Client {Name} authenticated via NONCE: FriendCode={FriendCode}",
-                                name, friendCode);
-                            matchmakerToken = null;
+                            _logger.LogInformation("✓ [Auth-1] Client {Name} matched via NONCE: PUID={Puid}, FriendCode={FriendCode}", name, productUserId, friendCode);
+                            goto authenticated;
                         }
                     }
                 }
                 
-                // 如果不是 NONCE，或 NONCE 查询失败，尝试作为 matchmakerToken
-                if (productUserId == null)
+                // 尝试作为 matchmakerToken
+                var authByToken = AuthCacheService.GetUserAuthByToken(matchmakerToken);
+                if (authByToken != null)
                 {
-                    var authInfo = AuthCacheService.GetUserAuthByToken(matchmakerToken);
-                    if (authInfo != null)
-                    {
-                        productUserId = authInfo.ProductUserId;
-                        friendCode = authInfo.FriendCode;
-                        _logger.LogInformation(
-                            "✓ Client {Name} authenticated via HTTP matchmakerToken: PUID={Puid}, FriendCode={FriendCode}",
-                            name, productUserId, friendCode);
-                    }
-                    else
-                    {
-                        _logger.LogWarning(
-                            "✗ Client {Name} provided matchmakerToken but not found in cache. Token={Token}",
-                            name, matchmakerToken.Length > 20 ? matchmakerToken[..20] + "..." : matchmakerToken);
-                    }
+                    productUserId = authByToken.ProductUserId;
+                    friendCode = authByToken.FriendCode;
+                    _logger.LogInformation("✓ [Auth-1] Client {Name} matched via matchmakerToken: PUID={Puid}, FriendCode={FriendCode}", name, productUserId, friendCode);
+                    goto authenticated;
                 }
+                
+                _logger.LogWarning("✗ [Auth-1] Client {Name}: matchmakerToken not found in cache", name);
             }
 
-            // 优先方案 2：握手中的 FriendCode（在非DTLS客户端或改进的客户端中）
+            // 优先级 2：握手中的 FriendCode
             if (productUserId == null && !string.IsNullOrEmpty(handshakeFriendCode))
             {
-                var authInfo = AuthCacheService.GetUserAuthByFriendCode(handshakeFriendCode);
-                if (authInfo != null)
+                _logger.LogInformation("🔍 [Auth-2] Client {Name}: Trying handshake FriendCode...", name);
+                
+                var authByFriendCode = AuthCacheService.GetUserAuthByFriendCode(handshakeFriendCode);
+                if (authByFriendCode != null)
                 {
-                    productUserId = authInfo.ProductUserId;
+                    productUserId = authByFriendCode.ProductUserId;
                     friendCode = handshakeFriendCode;
-                    _logger.LogInformation(
-                        "✓ Client {Name} authenticated via handshake FriendCode: PUID={Puid}",
-                        name, productUserId);
+                    _logger.LogInformation("✓ [Auth-2] Client {Name} matched via handshake FriendCode: PUID={Puid}", name, productUserId);
+                    goto authenticated;
                 }
                 else
                 {
-                    // 即使缓存中未找到，仍然保留握手中的 FriendCode（可能来自已过期的认证）
                     friendCode = handshakeFriendCode;
-                    _logger.LogInformation(
-                        "⚠ Client {Name} provided handshake FriendCode without cache hit: {FriendCode}",
-                        name, friendCode);
+                    _logger.LogInformation("⚠ [Auth-2] Client {Name}: FriendCode not in cache, using handshake value", name);
+                    goto authenticated;
                 }
             }
 
-            // 回退方案：通过 IP 地址匹配（当没有其他认证方式时）
-            if (productUserId == null)
+            // 优先级 3：IP 匹配（备选）
             {
+                _logger.LogWarning("🔍 [Auth-3] Client {Name}: Trying IP match (fallback)...", name);
+                
                 var authByIp = AuthCacheService.GetUserAuthByIp(clientIp);
                 if (authByIp != null)
                 {
                     productUserId = authByIp.ProductUserId;
                     friendCode = authByIp.FriendCode;
-                    _logger.LogWarning(
-                        "⚠ Client {Name} authenticated via IP match (fallback): PUID={Puid}, IP={Ip}",
-                        name, productUserId, clientIp);
+                    _logger.LogWarning("⚠ [Auth-3] Client {Name} matched via IP: PUID={Puid}, FriendCode={FriendCode}, IP={Ip}", name, productUserId, friendCode, clientIp);
                 }
                 else
                 {
-                    _logger.LogError(
-                        "✗ Client {Name} connected without any valid authentication. IP={Ip}",
-                        name, clientIp);
+                    _logger.LogError("✗ [Auth-3] Client {Name}: No authentication found. IP={Ip}", name, clientIp);
                 }
             }
+
+            authenticated:
 
             var client = _clientFactory.Create(connection, name, clientVersion, language, chatMode, platformSpecificData);
 
