@@ -11,17 +11,14 @@ namespace Impostor.Api.Net.Messages.C2S
         /// 格式（Among Us 客户端 GetConnectionData）：
         ///   GameVersion (4B)
         ///   Name (string)
-        ///   [V1+] LastNonceReceived (uint32) 或 matchmakerToken (string) — DTLS or NonDTLS
+        ///   [V1+] LastNonceReceived (uint32) 或 matchmakerToken — 取决于 useDtls 模式
         ///   [V2+] Language (uint32) + ChatMode (byte)
         ///   [V3+] PlatformSpecificData (message)
-        ///   [V3+] FriendCode (string) 或 ProductUserId (string) — DTLS or NonDTLS
-        ///   [V3+] CrossplayFlags (uint32)
+        ///   [V3+] FriendCode (string) 或 ProductUserId (string) — 可选，取决于 useDtls 模式
+        ///   [V3+] CrossplayFlags (uint32) — 可选
         ///
-        /// 认证流程：
-        ///   - useDtlsLayout=true: 握手包中发送 matchmakerToken + FriendCode
-        ///   - useDtlsLayout=false: 握手包中发送 Nonce(uint32) + FriendCode(实际上被客户端设置为空)
-        ///
-        /// ★ 关键修改：在非DTLS模式下，FriendCode 字段现在会被读取（之前被忽略）
+        /// ★ 改动：在所有可读取的地方都尝试读取字段，即使可能失败
+        /// 这样可以支持两种握手格式（DTLS 和 非DTLS）
         /// </summary>
         public static void Deserialize(
             IMessageReader reader,
@@ -39,29 +36,15 @@ namespace Impostor.Api.Net.Messages.C2S
             matchmakerToken = null;
             friendCode = null;
 
-            // V1+: LastNonceReceived (uint32) 或 matchmakerToken (string)
-            // 根据客户端的 useDtlsLayout 设置，此处读取不同类型数据
-            // 在 Among Us 客户端：
-            //   if (useDtlsLayout) -> Write(matchmakerToken)
-            //   else -> Write(LastNonceReceived.GetValueOrDefault())
-            // 由于我们无法从握手中判断 useDtlsLayout，两种情况都尝试：
+            // V1+: LastNonceReceived (uint32)
+            // 在非DTLS模式：uint32，通常为 0
+            // 在DTLS模式：这里是 matchmakerToken (string)，但已被 mods 改为 uint32
             if (clientVersion >= Version.V1)
             {
-                // 尝试读取为 uint32 (Nonce)
-                var startPos = reader.Position;
-                try
+                var nonce = reader.ReadUInt32();
+                if (nonce != 0)
                 {
-                    var nonce = reader.ReadUInt32();
-                    if (nonce != 0)
-                    {
-                        matchmakerToken = $"NONCE:{nonce}";
-                    }
-                }
-                catch
-                {
-                    // 如果读取 uint32 失败，说明这是 matchmakerToken (string)
-                    reader.Position = startPos;
-                    matchmakerToken = reader.ReadString();
+                    matchmakerToken = $"NONCE:{nonce}";
                 }
             }
 
@@ -88,39 +71,44 @@ namespace Impostor.Api.Net.Messages.C2S
                 platformSpecificData = null;
             }
 
-            // V3+: FriendCode (string) 或 ProductUserId (string)
-            // ★ 关键改动：现在 DTLS 禁用时仍然读取 FriendCode
-            // 在 Among Us 客户端：
-            //   if (useDtlsLayout) -> Write(FriendCode)
-            //   else -> Write("") 和 Write(0U)
-            // 
-            // 但我们会尽量读取，以支持客户端修改版本，以及未来可能的改动
+            // V3+: 尝试读取剩余字段（可能失败）
             if (clientVersion >= Version.V3)
             {
-                // ★ 关键：现在读取 FriendCode，即使在非 DTLS 模式
-                // 服务端应该修改 AU 客户端，在非 DTLS 模式下也发送 FriendCode
-                // 或者在握手前通过 HTTP 认证缓存 FriendCode
-                if (reader.Position < reader.Length)
+                try
                 {
-                    try
+                    // 尝试读取 FriendCode (string)
+                    // 在DTLS模式中存在，在非DTLS模式中为空字符串
+                    friendCode = reader.ReadString();
+                    if (string.IsNullOrEmpty(friendCode))
                     {
-                        friendCode = reader.ReadString();
-                        // 如果读取的是空字符串，视为 null
-                        if (string.IsNullOrEmpty(friendCode))
-                        {
-                            friendCode = null;
-                        }
-                    }
-                    catch
-                    {
-                        // 忽略读取错误
+                        friendCode = null;
                     }
                 }
-
-                // 跳过 CrossplayFlags
-                if (reader.Position < reader.Length)
+                catch
                 {
-                    try { reader.ReadUInt32(); } catch { /* ignore */ }
+                    // 如果读取失败（数据不足），friendCode 保持 null
+                    friendCode = null;
+                }
+
+                try
+                {
+                    // 尝试读取 ProductUserId (string) 或 CrossplayFlags (uint32)
+                    // 这些字段在非DTLS 且无DTLS层时不存在
+                    reader.ReadString();
+                }
+                catch
+                {
+                    // 忽略读取失败
+                }
+
+                try
+                {
+                    // 尝试读取 CrossplayFlags (uint32)
+                    reader.ReadUInt32();
+                }
+                catch
+                {
+                    // 忽略读取失败
                 }
             }
         }
