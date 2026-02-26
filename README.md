@@ -1,3 +1,7 @@
+# 我们将会开发一个全新的Impostor分支（可以在我们的组织中找到此仓库）
+# 此项目已被废弃 感谢关注
+
+
 # Next-Impostor
 
 [![Discord](https://img.shields.io/badge/Discord-chat-blue?style=flat-square)](https://discord.gg/Mk3w6Tb)
